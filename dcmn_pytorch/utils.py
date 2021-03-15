@@ -1,6 +1,10 @@
 import torch
 from torch.autograd import Variable
 from torch.nn.functional import softmax
+import pickle
+import argparse
+
+
 
 def masked_softmax(vector, seq_lens):
     mask = vector.new(vector.size()).zero_()
@@ -16,6 +20,15 @@ def masked_softmax(vector, seq_lens):
         result = result / (result.sum(dim=-1, keepdim=True) + 1e-13)
     return result
 
+
+def select_field(features, field):
+    return [
+        [
+            choice[field]
+            for choice in feature.choices_features
+        ]
+        for feature in features
+    ]
 
 
 def seperate_seq(sequence_output, doc_len, ques_len, option_len):
@@ -36,7 +49,6 @@ def seperate_seq(sequence_output, doc_len, ques_len, option_len):
         
     return doc_ques_seq_output, ques_option_seq_output, doc_seq_output, ques_seq_output, option_seq_output
 
-import pickle
 
 def parse_mc(input_file, answer_file, max_pad_length):
 
@@ -80,8 +92,6 @@ def parse_mc(input_file, answer_file, max_pad_length):
     return article, question, cts, y, q_id
 
 
-import argparse
-
 def get_arg_parser():
     parser = argparse.ArgumentParser()
 
@@ -93,12 +103,12 @@ def get_arg_parser():
                         type=str,
                         help="The input data dir. Should contain the .csv files (or other data files) for the task.")
     parser.add_argument("--bert_model",
-                        default='bert-base-uncased',
+                        default='bert-base-cased',
                         type=str,
                         help="Bert pre-trained model selected in the list: bert-base-uncased, "
                              "bert-large-uncased, bert-base-cased, bert-base-multilingual, bert-base-chinese.")
     parser.add_argument("--do_lower_case",
-                        default=True,
+                        default=False,
                         action='store_true',
                         help="Set this flag if you are using an uncased model.")
     parser.add_argument("--output_dir",
@@ -135,7 +145,7 @@ def get_arg_parser():
                         type=int,
                         help="Total batch size for eval.")
     parser.add_argument("--num_choices",
-                        default=16,
+                        default=14,
                         # default=12,
                         type=int,
                         help="Total batch size for eval.")
@@ -147,10 +157,6 @@ def get_arg_parser():
                         default=5.0,
                         type=float,
                         help="Total number of training epochs to perform.")
-    parser.add_argument("--sa_file",
-                        # default='sample_nsp_train_dev.json',
-                        default='sample_train.json',
-                        type=str)
 
 
     parser.add_argument("--model_name",
@@ -161,26 +167,16 @@ def get_arg_parser():
     parser.add_argument('--n_gpu',
                         type=int, default=1,
                         help='Loss scaling, positive power of 2 values can improve fp16 convergence.')
+
+    parser.add_argument('--gpu_id',
+                        type=int, default=0,
+                        help='gpu id')
+
     parser.add_argument('--gradient_accumulation_steps',
                         type=int,
                         default=1,
                         help="Number of updates steps to accumulate before performing a backward/update pass.")
-    parser.add_argument("--do_train",
-                        default=True,
-                        action='store_true',
-                        help="Whether to run training.")
-    parser.add_argument("--do_sa",
-                        default=False,
-                        action='store_true',
-                        help="Whether to run training.")
-    parser.add_argument("--do_eval",
-                        default=True,
-                        action='store_true',
-                        help="Whether to run eval on the dev set.")
-    parser.add_argument("--load_ft",
-                        default=False,
-                        action='store_true',
-                        help="Set this flag if you are using an uncased model.")
+
     parser.add_argument("--warmup_proportion",
                         default=0.1,
                         type=float,
@@ -190,10 +186,7 @@ def get_arg_parser():
                         default=False,
                         action='store_true',
                         help="Whether not to use CUDA when available")
-    parser.add_argument("--local_rank",
-                        type=int,
-                        default=-1,
-                        help="local_rank for distributed training on gpus")
+
     parser.add_argument('--seed',
                         type=int,
                         default=42,
@@ -202,10 +195,7 @@ def get_arg_parser():
                         default=False,
                         action='store_true',
                         help="Whether to perform optimization and keep the optimizer averages on CPU")
-    parser.add_argument('--fp16',
-                        default=False,
-                        action='store_true',
-                        help="Whether to use 16-bit float precision instead of 32-bit")
+
     parser.add_argument('--loss_scale',
                         type=float, default=4,
                         help='Loss scaling, positive power of 2 values can improve fp16 convergence.')
