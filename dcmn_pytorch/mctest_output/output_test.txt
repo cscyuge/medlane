@@ -1,0 +1,9 @@
+***** Eval results Epoch  2021-03-15 09:08:39 *****	
+Namespace(bert_model='bert-base-uncased', data_dir='./data', do_eval=True, do_lower_case=True, do_sa=False, do_train=True, eval_batch_size=2, fp16=False, gradient_accumulation_steps=1, learning_rate=1e-05, load_ft=False, local_rank=-1, loss_scale=4, max_seq_length=128, model_name='output_test.bin', n_gpu=1, no_cuda=False, num_choices=16, num_train_epochs=5.0, optimize_on_cpu=False, output_dir='mctest_output', output_file='output_test.txt', sa_file='sample_train.json', seed=42, test_file='dev_sentences.pkl', train_batch_size=2, train_file='train_sentences.pkl', warmup_proportion=0.1)	
+***** Running training *****	
+  Num examples = 12391	
+  Batch size = 2	
+  Num steps = 30977	
+	
+***** Eval results Epoch 0  2021-03-15 10:02:02 *****	
+best_accuracy = 0.5828877005347594	eval_accuracy = 0.5828877005347594	eval_loss = 1.6750589850691102	loss = 1.1858049375029491	lr_now = 8.000129128062756e-06		
