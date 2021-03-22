@@ -1,0 +1,20 @@
+***** Eval results Epoch  2021-03-22 02:07:49 *****	
+[('data_dir', './data'), ('bert_model', 'bert-base-cased'), ('do_lower_case', False), ('output_dir', 'mctest_output'), ('output_file', 'output_test.txt'), ('train_file', 'train_sentences.pkl'), ('test_file', 'dev_sentences.pkl'), ('max_seq_length', 64), ('train_batch_size', 1), ('eval_batch_size', 1), ('num_choices', 14), ('learning_rate', 1e-05), ('num_train_epochs', 30.0), ('model_name', 'output_test.bin'), ('n_gpu', 1), ('gpu_id', 0), ('gradient_accumulation_steps', 1), ('warmup_proportion', 0.1), ('no_cuda', False), ('seed', 42), ('optimize_on_cpu', False), ('loss_scale', 4)]	
+	
+***** Eval results Epoch 0  2021-03-22 03:19:40 *****	
+best_accuracy = 0.5023419203747073	eval_accuracy = 0.5023419203747073	eval_loss = 1.43998199522215	global_step = 11474	loss = 1.8673547768406278	lr_now = 3.3330428214513973e-06		
+	
+***** Eval results Epoch 1  2021-03-22 04:30:24 *****	
+best_accuracy = 0.6065573770491803	eval_accuracy = 0.6065573770491803	eval_loss = 2.5368920390756267	global_step = 22948	loss = 0.9820702517719572	lr_now = 6.666376154784732e-06		
+	
+***** Eval results Epoch 2  2021-03-22 05:41:18 *****	
+best_accuracy = 0.6288056206088993	eval_accuracy = 0.6288056206088993	eval_loss = 2.6328175642552885	global_step = 34422	loss = 0.8546418365057588	lr_now = 9.999709488118065e-06		
+	
+***** Eval results Epoch 3  2021-03-22 06:52:39 *****	
+best_accuracy = 0.6288056206088993	eval_accuracy = 0.6165105386416861	eval_loss = 2.707622272085786	global_step = 45896	loss = 0.765109545227114	lr_now = 8.66669571785486e-06		
+	
+***** Eval results Epoch 4  2021-03-22 08:04:08 *****	
+best_accuracy = 0.6288056206088993	eval_accuracy = 0.6206088992974239	eval_loss = 2.8994641593713277	global_step = 57370	loss = 0.7330805070125883	lr_now = 8.333362384521528e-06		
+	
+***** Eval results Epoch 5  2021-03-22 09:15:29 *****	
+best_accuracy = 0.6288056206088993	eval_accuracy = 0.6217798594847775	eval_loss = 3.3408260408530506	global_step = 68844	loss = 0.6357345896503022	lr_now = 8.000029051188194e-06		
