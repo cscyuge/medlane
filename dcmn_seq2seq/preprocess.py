@@ -18,11 +18,13 @@ class SwagExample(object):
                  context_sentence,
                  start_ending,
                  endings,
+                 key_embs,
                  label=None):
         self.swag_id = swag_id
         self.context_sentence = context_sentence
         self.start_ending = start_ending
         self.endings = endings
+        self.key_embs = key_embs
         self.label = label
 
     def __str__(self):
@@ -46,8 +48,8 @@ class InputFeatures(object):
     def __init__(self,
                  example_id,
                  choices_features,
-                 label
-
+                 label,
+                 key_embs
                  ):
         self.example_id = example_id
         self.choices_features = [
@@ -57,11 +59,12 @@ class InputFeatures(object):
                 'segment_ids': segment_ids,
                 'doc_len': doc_len,
                 'ques_len': ques_len,
-                'option_len': option_len
+                'option_len': option_len,
             }
             for _, input_ids, input_mask, segment_ids, doc_len, ques_len, option_len in choices_features
         ]
         self.label = label
+        self.key_embs = key_embs
 
 
 def _truncate_seq_pair(tokens_a, tokens_b, max_length):
@@ -84,7 +87,7 @@ def _truncate_seq_pair(tokens_a, tokens_b, max_length):
 
 def read_swag_examples(input_file, is_training, max_pad_length, dg):
     answer_file = input_file.replace('sentences', 'labels')
-    article, question, cts, y, q_id = parse_mc(input_file, answer_file, max_pad_length, dg)
+    article, question, cts, key_embs, y, q_id = parse_mc(input_file, answer_file, max_pad_length, dg)
 
     examples = [
         SwagExample(
@@ -94,8 +97,9 @@ def read_swag_examples(input_file, is_training, max_pad_length, dg):
             # common beginning of each
             # choice is stored in "sent2".
             endings=s3,
+            key_embs=s4,
             label=s7 if is_training else None
-        ) for i, (s1, s2, *s3, s7, s8), in enumerate(zip(article, question, *cts, y, q_id))
+        ) for i, (s1, s2, *s3, s4, s7, s8), in enumerate(zip(article, question, *cts, key_embs, y, q_id))
     ]
 
     return examples
@@ -190,7 +194,8 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
             InputFeatures(
                 example_id=example.swag_id,
                 choices_features=choices_features,
-                label=label
+                label=label,
+                key_embs=example.key_embs
             )
         )
 
@@ -209,10 +214,11 @@ def get_dataloader(data_dir, data_file, num_choices, tokenizer, max_seq_length, 
     all_doc_len = torch.tensor(select_field(features, 'doc_len'), dtype=torch.long)
     all_ques_len = torch.tensor(select_field(features, 'ques_len'), dtype=torch.long)
     all_option_len = torch.tensor(select_field(features, 'option_len'), dtype=torch.long)
-
+    all_key_embs = torch.tensor([f.key_embs for f in features], dtype=torch.float)
+    # all_key_embs = all_key_embs.squeeze()
     all_label = torch.tensor([f.label for f in features], dtype=torch.long)
     data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label, all_doc_len, all_ques_len,
-                               all_option_len)
+                               all_option_len, all_key_embs)
 
     sampler = SequentialSampler(data)
     dataloader = DataLoader(data, sampler=sampler, batch_size=batch_size)

@@ -56,7 +56,7 @@ def set_optimizer_params_grad(named_params_optimizer, named_params_model, test_n
 
 
 def train(model, dataloader, device, optimizer, global_step, t_total,
-          gradient_accumulation_steps, warmup_proportion, learning_rate, loss_fun,
+          gradient_accumulation_steps, warmup_proportion, learning_rate, loss_fun, dcmn_config,
           seq2seq, seq_config, seq_optimizer, seq_loss_fun, dg):
     model.train()
     seq2seq.train()
@@ -66,16 +66,16 @@ def train(model, dataloader, device, optimizer, global_step, t_total,
     nb_tr_examples, nb_tr_steps = 0, 0
     for step, batch in enumerate(tqdm(dataloader, desc="Iteration")):
         batch = tuple(t.to(device) for t in batch)
-        input_ids, input_mask, segment_ids, label_ids, doc_len, ques_len, option_len = batch
+        input_ids, input_mask, segment_ids, label_ids, doc_len, ques_len, option_len, key_embs = batch
         outputs = model(input_ids, segment_ids, input_mask, doc_len, ques_len, option_len)
 
         loss = loss_fun(outputs, label_ids)
-        seq_batch_input = dg.update_train(outputs.cpu().detach().numpy())
+        seq_batch_input, sum_embs = dg.update_train(outputs, key_embs, dcmn_config=dcmn_config)
         if seq_batch_input is not None:
-            src_ids, src_masks, tar_ids, tar_masks, sum_new_embs, indexes = seq_batch_input
+            src_ids, src_masks, tar_ids, tar_masks, indexes = seq_batch_input
             batch_src = [src_ids, 0, src_masks]
             batch_tar = [tar_ids, 0, tar_masks]
-            decoder_outputs, decoder_hidden, ret_dict = seq2seq(batch_src, indexes, sum_new_embs, batch_tar[0], 0.5)
+            decoder_outputs, decoder_hidden, ret_dict = seq2seq(batch_src, indexes, sum_embs, batch_tar[0], 0.5)
             seq_optimizer.zero_grad()
             target = batch_tar[0][:, 1:].reshape(-1)
             mask = batch_tar[2][:, 1:].reshape(-1).float()
@@ -145,7 +145,7 @@ def valid(model, dataloader, device, loss_fun, dg):
     return eval_loss, eval_accuracy
 
 
-def eval_set(model, dataloader, config, test_sum_embs, test_index):
+def eval_set(model, dataloader, config, test_sum_embs, test_index, test_qs):
     p = 0
     model.eval()
     results = []
@@ -154,8 +154,7 @@ def eval_set(model, dataloader, config, test_sum_embs, test_index):
     sep_count = 0
 
     for i, (batch_src, train_tar, train_dic) in tqdm(enumerate(dataloader)):
-        replace_embs = test_sum_embs[p:p + config.test_batch_size]
-        p += config.test_batch_size
+        replace_embs = test_sum_embs[test_qs[i]: test_qs[i+1]]
         decoder_outputs, decoder_hidden, ret_dict = model(batch_src,test_index[i*config.test_batch_size: (i+1)*config.test_batch_size], replace_embs, None, 0.0)
         symbols = ret_dict['sequence']
         symbols = torch.cat(symbols, 1).data.cpu().numpy()
@@ -196,13 +195,14 @@ def train_valid(dcmn, dcmn_config, train_dataloader, eval_dataloader, dcmn_optim
 
         tr_loss, nb_tr_steps, global_step, lr_pre = train(dcmn, train_dataloader, device, dcmn_optimizer, global_step,
                                                           t_total, gradient_accumulation_steps, warmup_proportion,
-                                                          learning_rate, dcmn_loss_fun,
+                                                          learning_rate, dcmn_loss_fun, dcmn_config,
                                                           seq2seq, seq_config, seq_optimizer, seq_loss_fun, dg)
         dg.restart_train()
         eval_loss, eval_accuracy = valid(dcmn, eval_dataloader, device, dcmn_loss_fun, dg)
-        test_sum_embs = dg.get_test_sum_embs()
+        if dg.q_test_emb>0:
+            dg.test_qs.append(dg.q_test_emb)
         if epoch >= 0:
-            val_results, bleu, hit, com, ascore = eval_set(seq2seq, test_dataloader, seq_config, test_sum_embs, dg.test_indexes)
+            val_results, bleu, hit, com, ascore = eval_set(seq2seq, test_dataloader, seq_config, dg.test_sum_embs, dg.test_indexes, dg.test_qs)
             # validation steps
 
             print(val_results[0:5])
@@ -215,7 +215,8 @@ def train_valid(dcmn, dcmn_config, train_dataloader, eval_dataloader, dcmn_optim
                 save_file['best_hit'] = hit
                 save_file['best_common'] = com
                 torch.save(save_file, './cache/best_save.data')
-        dg.restart_test()
+        if epoch < num_train_epochs-1:
+            dg.restart_test()
 
         if eval_accuracy > best_accuracy:
             logger.info("**** Saving model.... *****")
@@ -239,3 +240,15 @@ def train_valid(dcmn, dcmn_config, train_dataloader, eval_dataloader, dcmn_optim
                 logger.info("  %s = %s", key, str(result[key]))
                 writer.write("%s = %s\t" % (key, str(result[key])))
             writer.write("\t\n")
+
+    save_file_best = torch.load('./cache/best_save.data')
+    print('Train finished')
+    print('Best Val BLEU:%f, HIT:%f, COMMON:%f' % (
+        save_file_best['best_bleu'], save_file_best['best_hit'], save_file_best['best_common']))
+    seq2seq.load_state_dict(save_file_best['para'])
+    test_results, bleu, hit, com, ascore = eval_set(seq2seq, test_dataloader, seq_config, dg.test_sum_embs, dg.test_indexes, dg.test_qs)
+    print('Test BLEU:%f, HIT:%f, COMMON:%f, ASCORE:%f' % (bleu, hit, com, ascore))
+    with open('./result/best_save_bert.out.txt', 'w', encoding='utf-8') as f:
+        f.writelines([x + '\n' for x in test_results])
+
+

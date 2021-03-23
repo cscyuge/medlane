@@ -7,6 +7,7 @@ from pytorch_pretrained_bert.modeling import BertPreTrainedModel,BertModel,BertC
 import torch
 from dcmn_seq2seq.models.bert import Config
 from keras.preprocessing.sequence import pad_sequences
+from torch.nn.functional import softmax
 
 from tqdm import tqdm
 import numpy as np
@@ -162,34 +163,31 @@ def get_dcmn_data_from_gt(src_words, tar_words, abbrs, max_pad_length, max_dcmn_
                     pre = pre.lower()
 
                 if pre in abbrs.keys():
-                    if len(abbrs[pre]) > 1:
-                        temp = [' '.join(src_words), 'what is {} ?'.format(pre)]
-                        label = -1
-                        skip_cnt = 0
-                        for index, u in enumerate(abbrs[pre]):
-                            if index-skip_cnt>=max_pad_length-2:
-                                break
-                            if len(u.split(' ')) > 10:
-                                skip_cnt += 1
-                                continue
-                            h = u
-                            temp.append(h)
-                            if is_similar(u, aft):
-                                label = index
-                        while len(temp) < max_pad_length:
-                            temp.append('[PAD]')
-                        if len(tokenizer.tokenize(temp[0])) + len(tokenizer.tokenize(temp[1])) + len(
-                                tokenizer.tokenize(temp[2])) >= max_dcmn_seq_length\
-                                or label<0 or label >= max_pad_length - 2:
-                            src.append(pre)
-                        else:
-                            sentences.append(temp)
-                            labels.append(label)
-                            keys.append(pre)
-                            src.append('[MASK]')
-                            key_ans[pre] = label
+                    temp = [' '.join(src_words), 'what is {} ?'.format(pre)]
+                    label = -1
+                    skip_cnt = 0
+                    for index, u in enumerate(abbrs[pre]):
+                        if index-skip_cnt>=max_pad_length-2:
+                            break
+                        if len(u.split(' ')) > 10:
+                            skip_cnt += 1
+                            continue
+                        h = u
+                        temp.append(h)
+                        if is_similar(u, aft):
+                            label = index
+                    while len(temp) < max_pad_length:
+                        temp.append('[PAD]')
+                    if len(tokenizer.tokenize(temp[0])) + len(tokenizer.tokenize(temp[1])) + len(
+                            tokenizer.tokenize(temp[2])) >= max_dcmn_seq_length\
+                            or label<0 or label >= max_pad_length - 2:
+                        src.append(pre)
                     else:
-                        src.append(abbrs[pre][0])
+                        sentences.append(temp)
+                        labels.append(label)
+                        keys.append(pre)
+                        src.append('[MASK]')
+                        key_ans[pre] = label
                 else:
                     src.append(pre)
 
@@ -209,34 +207,31 @@ def get_dcmn_data_from_step1(src_words, masks, k_a, abbrs, max_pad_length, max_d
             continue
         key = src_words[i]
         if key in abbrs.keys() and key in k_a.keys() and k_a[key]>=0 and k_a[key]<max_pad_length-2:
-            if len(abbrs[key]) > 1:
-                temp = [' '.join(src_words), 'what is {} ?'.format(key)]
-                label = -1
-                if key in k_a.keys():
-                    label = k_a[key]
-                skip_cnt = 0
-                for index, u in enumerate(abbrs[key]):
-                    if index-skip_cnt >= max_pad_length-2:
-                        break
-                    if len(u.split(' ')) > 10:
-                        skip_cnt += 1
-                        continue
-                    h = u
-                    temp.append(h)
-
-                while len(temp) < max_pad_length:
-                    temp.append('[PAD]')
-
-                if len(tokenizer.tokenize(temp[0])) + len(tokenizer.tokenize(temp[1])) + len(
-                        tokenizer.tokenize(temp[2])) >= max_dcmn_seq_length:
-                    src.append(key)
+            temp = [' '.join(src_words), 'what is {} ?'.format(key)]
+            label = -1
+            if key in k_a.keys():
+                label = k_a[key]
+            skip_cnt = 0
+            for index, u in enumerate(abbrs[key]):
+                if index-skip_cnt >= max_pad_length-2:
+                    break
+                if len(u.split(' ')) > 10:
+                    skip_cnt += 1
                     continue
-                sentences.append(temp)
-                keys.append(key)
-                src.append('[SEP] [MASK] [SEP]')
-                labels.append(label)
-            else:
-                src.append(abbrs[key][0])
+                h = u
+                temp.append(h)
+
+            while len(temp) < max_pad_length:
+                temp.append('[PAD]')
+
+            if len(tokenizer.tokenize(temp[0])) + len(tokenizer.tokenize(temp[1])) + len(
+                    tokenizer.tokenize(temp[2])) >= max_dcmn_seq_length:
+                src.append(key)
+                continue
+            sentences.append(temp)
+            keys.append(key)
+            src.append('[SEP] [MASK] [SEP]')
+            labels.append(label)
         elif key in abbrs.keys() and key not in k_a.keys() and len(abbrs[key]) == 1:
             src.append(abbrs[key][0])
         else:
@@ -309,31 +304,28 @@ def get_embs(dcmn_keys, abbrs, max_pad_length):
     inputs = inputs.to(device)
     with torch.no_grad():
         _, pad_embs = bert(inputs)
-    pad_embs = pad_embs.cpu().detach().numpy()
+    pad_embs = pad_embs.cpu().detach().numpy()[0]
     dcmn_embs = []
-    for keys in tqdm(dcmn_keys):
-        key_embs = []
-        for key in keys:
-            emb_values = []
-            skip_cnt = 0
-            for i, value in enumerate(abbrs[key]):
-                if len(value.split(' ')) > 10:
-                    skip_cnt += 1
-                    continue
-                if i - skip_cnt >= max_pad_length - 2:
-                    break
-                tokens = tokenizer.tokenize(key)
-                ids = tokenizer.convert_tokens_to_ids(tokens)
-                inputs = [ids]
-                inputs = torch.tensor(inputs)
-                inputs = inputs.to(device)
-                with torch.no_grad():
-                    _, embs = bert(inputs)
-                    emb_values.append(embs.cpu().detach().numpy())
-            while len(emb_values) < max_pad_length-2:
-                emb_values.append(pad_embs)
-            key_embs.append(emb_values)
-        dcmn_embs.append(key_embs)
+    for key in tqdm(dcmn_keys):
+        emb_values = []
+        skip_cnt = 0
+        for i, value in enumerate(abbrs[key]):
+            if len(value.split(' ')) > 10:
+                skip_cnt += 1
+                continue
+            if i - skip_cnt >= max_pad_length - 2:
+                break
+            tokens = tokenizer.tokenize(key)
+            ids = tokenizer.convert_tokens_to_ids(tokens)
+            inputs = [ids]
+            inputs = torch.tensor(inputs)
+            inputs = inputs.to(device)
+            with torch.no_grad():
+                _, embs = bert(inputs)
+                emb_values.append(embs.cpu().detach().numpy()[0])
+        while len(emb_values) < max_pad_length-2:
+            emb_values.append(pad_embs)
+        dcmn_embs.append(emb_values)
     return dcmn_embs
 
 
@@ -362,23 +354,14 @@ def get_index(srcs, batch_size):
     return tar_indexs
 
 
-def softmax(x, axis=1):
-    row_max = x.max(axis=axis)
-
-    row_max = row_max.reshape(-1, 1)
-    x = x - row_max
-
-    x_exp = np.exp(x)
-    x_sum = np.sum(x_exp, axis=axis, keepdims=True)
-    s = x_exp / x_sum
-    return s
 
 class DataGenerator():
-    def __init__(self, seq_batch_size, max_pad_length=16, max_seq_length=64, cuda=True):
+    def __init__(self, seq_batch_size, max_pad_length=16, max_seq_length=64, cuda=True, emb_size = 768):
         if cuda:
             self.device = torch.device('cuda')
         else:
             self.device = torch.device('cpu')
+        self.emb_size = emb_size
 
         self.abbrs_path = './data/abbrs-all-cased.pkl'
         self.train_txt_path = './data/train(12809).txt'
@@ -386,9 +369,9 @@ class DataGenerator():
         with open(self.abbrs_path, 'rb') as f:
             self.abbrs = pickle.load(f)
         self.train_src_txt, self.train_tar_1_txt, self.train_tar_2_txt = get_train_src_tar_txt(self.train_txt_path)
-        # self.train_src_txt = self.train_src_txt[:500]
-        # self.train_tar_1_txt = self.train_tar_1_txt[:500]
-        # self.train_tar_2_txt = self.train_tar_2_txt[:500]
+        self.train_src_txt = self.train_src_txt[:500]
+        self.train_tar_1_txt = self.train_tar_1_txt[:500]
+        self.train_tar_2_txt = self.train_tar_2_txt[:500]
 
         self.test_src_txt, self.test_tar_1_txt, self.test_tar_2_txt = get_test_src_tar_txt(self.test_txt_path)
 
@@ -414,7 +397,7 @@ class DataGenerator():
             self.train_dcmn_srcs.extend(sentences)
             self.train_dcmn_labels.extend(labels)
             self.train_seq_srcs.append(src)
-            self.train_keys.append(keys)
+            self.train_keys.extend(keys)
 
         with open('./data/test_mask_step2_2030.pkl', 'rb') as f:
             test_mask_step2 = pickle.load(f)
@@ -438,7 +421,7 @@ class DataGenerator():
             sentences, labels, src, keys = get_dcmn_data_from_step1(sts, masks, k_a, self.abbrs, max_pad_length=max_pad_length,
                                                                     max_dcmn_seq_length=max_seq_length, tokenizer=tokenizer)
 
-            self.test_keys.append(keys)
+            self.test_keys.extend(keys)
             self.test_order.append(len(sentences))
             self.test_dcmn_srcs.extend(sentences)
             self.test_dcmn_labels.extend(labels)
@@ -460,7 +443,8 @@ class DataGenerator():
         with open('./data/test_embs.pkl', 'rb') as f:
             self.test_embs = pickle.load(f)
 
-        seq_config = Config(16)
+
+        seq_config = Config(seq_batch_size)
         seq_tokenizer = seq_config.tokenizer
         self.train_seq_srcs_ids, self.train_seq_srcs_masks = seq_tokenize(self.train_seq_srcs, seq_tokenizer,
                                                                           max_seq_length)
@@ -476,20 +460,24 @@ class DataGenerator():
 
         self.p_train, self.p_test = 0, 0
         self.q_train, self.q_test = 0, 0
-        self.p_emb = 0
+        self.p_train_emb, self.q_train_emb = 0, 0
+        self.p_test_emb, self.q_test_emb = 0,0
+        self.train_sum_embs = []
+        self.test_sum_embs = []
+        self.test_qs = [0]
 
-        self.seq_train_data = []    # src_id(64), src_mask(64), tar_id(64), tar_mask(64), sum_new_embs(num of keys in src_id), indexes(index of key)
-                                    # 0              1            2              3            4                                     5
+        self.seq_train_data = []    # src_id(64), src_mask(64), tar_id(64), tar_mask(64), indexes(index of key)
+                                    # 0              1            2              3            4
         for src_id, src_mask, tar_id, tar_mask, indexes in zip(self.train_seq_srcs_ids, self.train_seq_srcs_masks,
                                                                self.train_seq_tars_ids, self.train_seq_tars_masks,
                                                                self.train_indexes):
-            self.seq_train_data.append([src_id, src_mask, tar_id, tar_mask, [], indexes])
+            self.seq_train_data.append([src_id, src_mask, tar_id, tar_mask, indexes])
 
-        self.seq_test_data = []  # src_id(64), src_mask(64), tars, cudics, sum_new_embs(num of keys in src_id),
-                                  # 0              1            2     3         4
+        self.seq_test_data = []  # src_id(64), src_mask(64), tars, cudics,
+                                  # 0              1            2     3
         for src_id, src_mask, tars, cudic in zip(self.test_seq_srcs_ids, self.test_seq_srcs_masks,
                                                                self.seq_test_tars, self.cudics):
-            self.seq_test_data.append([src_id, src_mask, tars, cudic, []])
+            self.seq_test_data.append([src_id, src_mask, tars, cudic])
 
         self.seq_batch_size = seq_batch_size
 
@@ -498,62 +486,71 @@ class DataGenerator():
         src_masks = torch.LongTensor([_[1] for _ in datas]).to(self.device)
         tar_ids = torch.LongTensor([_[2] for _ in datas]).to(self.device)
         tar_masks = torch.LongTensor([_[3] for _ in datas]).to(self.device)
-        sum_new_embs = [_[4] for _ in datas]
-        indexes = [_[5] for _ in datas]
-        return src_ids, src_masks, tar_ids, tar_masks, sum_new_embs, indexes
+        indexes = [_[4] for _ in datas]
+        return src_ids, src_masks, tar_ids, tar_masks, indexes
 
 
-    def update_train(self, batch_scores):
-        batch_scores = softmax(batch_scores, axis=1)
-        while self.p_train < len(self.train_order) and self.train_order[self.p_train] == 0:
-            self.p_train += 1
-
-        for scores in batch_scores:
-
-            new_embs = [score*emb for (score, emb) in zip(scores, self.train_embs[self.p_train][self.p_emb])]
-            self.p_emb += 1
-            sum_new_emb = np.sum(new_embs, axis=0)
-            self.seq_train_data[self.p_train][4].append(sum_new_emb)
-            if len(self.seq_train_data[self.p_train][4]) == self.train_order[self.p_train]:
+    def update_train(self, batch_scores, batch_embs, dcmn_config):
+        # batch_scores : batch_size * num_choices
+        # batch_embs   : batch_size * num_choices * emb_size
+        batch_scores = softmax(batch_scores, dim=1)
+        batch_scores = batch_scores.unsqueeze(-1).expand(dcmn_config.train_batch_size, dcmn_config.num_choices, self.emb_size)
+        batch_embs = torch.tensor(batch_embs).to(self.device)
+        sum_new_embs = torch.sum(batch_embs*batch_scores, dim=1)
+        self.train_sum_embs.extend(sum_new_embs)
+        for _ in range(dcmn_config.train_batch_size):
+            if self.p_train_emb >= self.train_order[self.p_train]:
                 self.p_train += 1
-                while self.p_train < len(self.train_order) and self.train_order[self.p_train] == 0:
-                    self.p_train += 1
-                self.p_emb = 0
+                self.p_train_emb = 0
+            else:
+                self.p_train_emb += 1
+                self.q_train_emb += 1
 
         if self.p_train - self.q_train >= self.seq_batch_size:
             batch_data = self.seq_train_data[self.q_train: self.q_train + self.seq_batch_size]
             self.q_train += self.seq_batch_size
-            return self.train_data_to_tensor(batch_data)
+            batch_embs = self.train_sum_embs[:self.q_train_emb]
+            self.train_sum_embs = self.train_sum_embs[self.q_train_emb:]
+            self.q_train_emb = 0
+            return self.train_data_to_tensor(batch_data), batch_embs
         else:
-            return None
+            return None, None
 
     def restart_train(self):
         self.p_train = 0
         self.q_train = 0
-        self.p_emb = 0
-        for i in range(len(self.seq_train_data)):
-            self.seq_train_data[i][4] = []
+        self.p_train_emb = 0
+        self.q_train_emb = 0
+        self.train_sum_embs = []
 
-    def update_test(self, batch_scores):
-        batch_scores = softmax(batch_scores, axis=1)
-        while self.p_test < len(self.test_order) and self.test_order[self.p_test] == 0:
-            self.p_test += 1
+    def update_test(self, batch_scores, batch_embs, dcmn_config):
+        batch_scores = softmax(batch_scores, dim=1)
+        batch_scores = batch_scores.unsqueeze(-1).expand(dcmn_config.test_batch_size, dcmn_config.num_choices,
+                                                         self.emb_size)
+        batch_embs = torch.tensor(batch_embs).to(self.device)
+        sum_new_embs = torch.sum(batch_embs * batch_scores, dim=1)
+        self.test_sum_embs.extend(sum_new_embs)
 
-        for scores in batch_scores:
-            new_embs = [score * emb for (score, emb) in zip(scores, self.test_embs[self.p_test][self.q_test])]
-            sum_new_emb = np.sum(new_embs, axis=0)
-            self.seq_test_data[self.p_test][4].append(sum_new_emb)
-            if len(self.seq_test_data[self.p_test][4]) == self.test_order[self.p_test]:
+        for _ in range(dcmn_config.test_batch_size):
+            if self.p_test_emb >= self.test_order[self.p_test]:
                 self.p_test += 1
+                self.p_test_emb = 0
+            else:
+                self.p_test_emb += 1
+                self.q_test_emb += 1
+
+        if self.p_test - self.q_test >= self.seq_batch_size:
+            self.q_test += self.seq_batch_size
+            self.test_qs.append(self.q_test_emb)
 
     def restart_test(self):
         self.p_test = 0
-        for i in range(len(self.seq_test_data)):
-            self.seq_test_data[i][4] = []
+        self.q_test = 0
+        self.p_test_emb = 0
+        self.q_test_emb =0
+        self.test_qs = [0]
+        self.test_sum_embs = []
 
-
-    def get_test_sum_embs(self):
-        return [_[4] for _ in self.seq_test_data]
 
     def build_dataset_eval(self):
         token_ids_srcs = self.test_seq_srcs_ids

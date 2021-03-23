@@ -118,43 +118,14 @@ def seperate_seq(sequence_output, doc_len, ques_len, option_len):
 
 
 def parse_mc(input_file, answer_file, max_pad_length, dg):
-    # bert_model = 'bert-base-cased'
-    # tokenizer = BertTokenizer.from_pretrained(bert_model, do_lower_case=False)
-    #
-    # with open(input_file, 'rb') as f:
-    #     sentences = pickle.load(f)
-    # with open(answer_file, 'rb') as f:
-    #     labels = pickle.load(f)
-    #
-    # for i in range(len(sentences)):
-    #     u = sentences[i]
-    #     while len(u) < max_pad_length:
-    #         u.append('[PAD]')
-    #     if len(u) > max_pad_length:
-    #         # print(u)
-    #         u = u[:max_pad_length]
-    #     sentences[i] = tuple(u)
-    #     if labels[i]>=max_pad_length-2:
-    #         labels[i] = -1
-    #     if labels[i]<0:
-    #         labels[i] = -1
-    # _sentences = []
-    # _labels = []
-    # cnt = 0
-    # for i in range(len(sentences)):
-    #     if len(tokenizer.tokenize(sentences[i][0])) + len(tokenizer.tokenize(sentences[i][1]))+ len(tokenizer.tokenize(sentences[i][2])) <64\
-    #             and labels[i]>=0:
-    #         _sentences.append(sentences[i])
-    #         _labels.append(labels[i])
-    #     else:
-    #         cnt+=1
-    # print('skip sample nums:{}'.format(cnt))
     if 'dev' in input_file:
         _sentences = dg.test_dcmn_srcs
         _labels = dg.test_dcmn_labels
+        key_embs = dg.train_embs
     else:
         _sentences = dg.train_dcmn_srcs
         _labels = dg.train_dcmn_labels
+        key_embs = dg.test_embs
 
     sentences = _sentences
     labels= _labels
@@ -167,7 +138,7 @@ def parse_mc(input_file, answer_file, max_pad_length, dg):
         cts.append([u[i+2] for u in sentences])
     y = labels
 
-    return article, question, cts, y, q_id
+    return article, question, cts, key_embs, y, q_id
 
 
 
