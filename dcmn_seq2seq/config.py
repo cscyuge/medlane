@@ -79,7 +79,7 @@ class DCMN_Config():
 
         self.t_total = 0
 
-        self.seq_batch_size = 2
+        self.seq_batch_size = 1
 
 
 class Seq2seq_Config():

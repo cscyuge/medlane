@@ -37,6 +37,7 @@ from dcmn_seq2seq.Seq2seq import DecoderRNN, Seq2seq, SEP, CLS
 from dcmn_seq2seq.utils import build_iterator_eval
 from dcmn_seq2seq.draw import DataGenerator
 import dcmn_seq2seq.models.bert as seq_bert
+from tqdm import tqdm
 
 
 
@@ -63,18 +64,18 @@ def build_dcmn():
                                                            num_choices=dcmn_config.num_choices,
                                                            tokenizer=tokenizer, max_seq_length=dcmn_config.max_seq_length,
                                                            batch_size=dcmn_config.train_batch_size,
-                                                           dg=dg)
+                                                           dg=dg, is_training=True)
     num_train_steps = int(
         train_examples_size / dcmn_config.train_batch_size / dcmn_config.gradient_accumulation_steps * dcmn_config.num_train_epochs)
     t_total = num_train_steps
     dcmn_config.t_total = t_total
 
-    eval_dataloader, eval_examples_size = get_dataloader(data_dir=dcmn_config.data_dir, data_file=dcmn_config.test_file,
+    eval_dataloader, eval_examples_size, tars, cudics = get_dataloader(data_dir=dcmn_config.data_dir, data_file=dcmn_config.test_file,
                                                          num_choices=dcmn_config.num_choices,
                                                          tokenizer=tokenizer, max_seq_length=dcmn_config.max_seq_length,
                                                          batch_size=dcmn_config.eval_batch_size,
-                                                         dg=dg)
-    print(eval_examples_size)
+                                                         dg=dg, is_training=False)
+
 
     model = BertForMultipleChoiceWithMatch.from_pretrained(dcmn_config.bert_model,
                                                            cache_dir=PYTORCH_PRETRAINED_BERT_CACHE / 'distributed_{}'.format(
@@ -103,12 +104,11 @@ def build_dcmn():
     return model, dcmn_config, train_dataloader, eval_dataloader, optimizer, loss_fun, dg
 
 
-def build_seq2seq(hidden_size, batch_size, max_len, cuda, dg):
+def build_seq2seq(hidden_size, batch_size, max_len, no_cuda, dg):
     bidirectional = False
 
-    config = seq_bert.Config(batch_size, 1)
-    test_data = dg.build_dataset_eval()
-    test_dataloader = build_iterator_eval(test_data, config.test_batch_size ,config)
+    config = seq_bert.Config(batch_size, no_cuda)
+    config.hidden_size = hidden_size
 
     encoder = seq_bert.Model(config).to(config.device)
     decoder = DecoderRNN(len(config.tokenizer.vocab), max_len, hidden_size * 2 if bidirectional else hidden_size,
@@ -119,7 +119,7 @@ def build_seq2seq(hidden_size, batch_size, max_len, cuda, dg):
     decoder = decoder.to(config.device)
 
     seq2seq = Seq2seq(encoder, decoder)
-    if cuda:
+    if not no_cuda:
         seq2seq.cuda()
     param_optimizer = list(seq2seq.named_parameters())
     no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
@@ -127,23 +127,24 @@ def build_seq2seq(hidden_size, batch_size, max_len, cuda, dg):
         {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
         {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}]
     # optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
-    print(len(dg.train_src_txt))
+
     optimizer = BertAdam(optimizer_grouped_parameters,
                          lr=config.learning_rate,
                          warmup=0.03,
                          t_total=len(dg.train_src_txt) * config.num_epochs)
 
-    if cuda:
+    if not no_cuda:
         seq2seq.cuda()
     loss_fun = torch.nn.NLLLoss(reduce=False)
-    return seq2seq, config, optimizer, loss_fun, test_dataloader
+    return seq2seq, config, optimizer, loss_fun
 
 def main():
     dcmn, dcmn_config, dcmn_train_dataloader, dcmn_eval_dataloader, dcmn_optimizer, dcmn_loss_fun, dg = build_dcmn()
 
-    seq2seq, seq_config, seq_optimizer, seq_loss_fun ,test_dataloader= build_seq2seq(768, dcmn_config.seq_batch_size, 64, True, dg)
+    seq2seq, seq_config, seq_optimizer, seq_loss_fun= build_seq2seq(768, dcmn_config.seq_batch_size, 64, dcmn_config.no_cuda, dg)
     train_valid(dcmn, dcmn_config, dcmn_train_dataloader, dcmn_eval_dataloader, dcmn_optimizer, dcmn_loss_fun,
-                seq2seq,seq_config, seq_optimizer, seq_loss_fun, test_dataloader, dg)
+                seq2seq,seq_config, seq_optimizer, seq_loss_fun, dg)
+
 
 
 if __name__ == '__main__':

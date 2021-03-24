@@ -6,6 +6,7 @@ import time
 from tqdm import tqdm
 from dcmn_seq2seq.utils import decode_sentence
 from dcmn_seq2seq.bleu_eval_new import get_score
+from torch.nn.functional import softmax
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt='%m/%d/%Y %H:%M:%S',
@@ -62,38 +63,39 @@ def train(model, dataloader, device, optimizer, global_step, t_total,
     seq2seq.train()
 
     tr_loss = 0
-    pre_loss = 0
     nb_tr_examples, nb_tr_steps = 0, 0
     for step, batch in enumerate(tqdm(dataloader, desc="Iteration")):
         batch = tuple(t.to(device) for t in batch)
-        input_ids, input_mask, segment_ids, label_ids, doc_len, ques_len, option_len, key_embs = batch
+
+        input_ids, input_mask, segment_ids, label_ids, doc_len, ques_len, option_len, key_embs,\
+            src_ids, src_masks, indices, tar_ids, tar_masks= batch
         outputs = model(input_ids, segment_ids, input_mask, doc_len, ques_len, option_len)
 
         loss = loss_fun(outputs, label_ids)
-        seq_batch_input, sum_embs = dg.update_train(outputs, key_embs, dcmn_config=dcmn_config)
-        if seq_batch_input is not None:
-            src_ids, src_masks, tar_ids, tar_masks, indexes = seq_batch_input
-            batch_src = [src_ids, 0, src_masks]
-            batch_tar = [tar_ids, 0, tar_masks]
-            decoder_outputs, decoder_hidden, ret_dict = seq2seq(batch_src, indexes, sum_embs, batch_tar[0], 0.5)
-            seq_optimizer.zero_grad()
-            target = batch_tar[0][:, 1:].reshape(-1)
-            mask = batch_tar[2][:, 1:].reshape(-1).float()
-            logit = torch.stack(decoder_outputs, 1).view(target.shape[0], -1)
-            seq_loss = (seq_loss_fun(input=logit, target=target) * mask).sum() / mask.sum() + pre_loss*5
-            pre_loss = 0
-            seq_loss.backward()
-            seq_optimizer.step()
+        batch_scores = softmax(outputs, dim=1)
+        batch_scores = batch_scores.unsqueeze(-1).expand(dcmn_config.train_batch_size, dcmn_config.num_choices, seq_config.hidden_size)
+        sum_embs = torch.sum(key_embs * batch_scores, dim=1)
+
+        # src_ids, src_masks, tar_ids, tar_masks, indexes = seq_batch_input
+        batch_src = [src_ids, src_masks]
+        batch_tar = [tar_ids, tar_masks]
+        decoder_outputs, decoder_hidden, ret_dict = seq2seq(batch_src, indices, sum_embs, batch_tar[0], 0.5)
+        seq_optimizer.zero_grad()
+        target = batch_tar[0][:, 1:].reshape(-1)
+        mask = batch_tar[1][:, 1:].reshape(-1).float()
+        logit = torch.stack(decoder_outputs, 1).view(target.shape[0], -1)
+        seq_loss = (seq_loss_fun(input=logit, target=target) * mask).sum() / mask.sum() + loss*5
+        seq_loss.backward()
+        seq_optimizer.step()
 
         # if gradient_accumulation_steps > 1:
         #     loss = loss / gradient_accumulation_steps
-        tr_loss += loss.item()
-        pre_loss += loss.item()
+        tr_loss += seq_loss.item()
         nb_tr_examples += input_ids.size(0)
         nb_tr_steps += 1
 
 
-        loss.backward()
+        # loss.backward()
         if (step + 1) % gradient_accumulation_steps == 0:
             # modify learning rate with special warm up BERT uses
             lr_this_step = learning_rate * warmup_linear(global_step / t_total, warmup_proportion)
@@ -174,7 +176,7 @@ def eval_set(model, dataloader, config, test_sum_embs, test_index, test_qs):
 
 
 def train_valid(dcmn, dcmn_config, train_dataloader, eval_dataloader, dcmn_optimizer, dcmn_loss_fun,
-                seq2seq, seq_config, seq_optimizer, seq_loss_fun, test_dataloader,dg):
+                seq2seq, seq_config, seq_optimizer, seq_loss_fun, dg):
     num_train_epochs = dcmn_config.num_train_epochs
     device = dcmn_config.device
     t_total = dcmn_config.t_total
@@ -197,58 +199,56 @@ def train_valid(dcmn, dcmn_config, train_dataloader, eval_dataloader, dcmn_optim
                                                           t_total, gradient_accumulation_steps, warmup_proportion,
                                                           learning_rate, dcmn_loss_fun, dcmn_config,
                                                           seq2seq, seq_config, seq_optimizer, seq_loss_fun, dg)
-        dg.restart_train()
+
         eval_loss, eval_accuracy = valid(dcmn, eval_dataloader, device, dcmn_loss_fun, dg)
-        if dg.q_test_emb>0:
-            dg.test_qs.append(dg.q_test_emb)
-        if epoch >= 0:
-            val_results, bleu, hit, com, ascore = eval_set(seq2seq, test_dataloader, seq_config, dg.test_sum_embs, dg.test_indexes, dg.test_qs)
-            # validation steps
-
-            print(val_results[0:5])
-            print('BLEU:%f, HIT:%f, COMMON:%f, ASCORE:%f' % (bleu, hit, com, ascore))
-            if bleu > max_bleu:
-                max_bleu = bleu
-                save_file['epoch'] = epoch + 1
-                save_file['para'] = seq2seq.state_dict()
-                save_file['best_bleu'] = bleu
-                save_file['best_hit'] = hit
-                save_file['best_common'] = com
-                torch.save(save_file, './cache/best_save.data')
-        if epoch < num_train_epochs-1:
-            dg.restart_test()
-
-        if eval_accuracy > best_accuracy:
-            logger.info("**** Saving model.... *****")
-            best_accuracy = eval_accuracy
-            model_to_save = dcmn.module if hasattr(dcmn, 'module') else dcmn  # Only save the model it-self
-            output_model_file = os.path.join(output_dir, model_name)
-            torch.save(model_to_save.state_dict(), output_model_file)
-
-        result = {'eval_loss': eval_loss,
-                  'best_accuracy': best_accuracy,
-                  'eval_accuracy': eval_accuracy,
-                  'global_step': global_step,
-                  'lr_now': lr_pre,
-                  'loss': tr_loss / nb_tr_steps}
-        output_eval_file = os.path.join(output_dir, output_file)
-        with open(output_eval_file, "a") as writer:
-            logger.info("***** Eval results *****")
-            writer.write("\t\n***** Eval results Epoch %d  %s *****\t\n" % (
-                epoch, time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))))
-            for key in sorted(result.keys()):
-                logger.info("  %s = %s", key, str(result[key]))
-                writer.write("%s = %s\t" % (key, str(result[key])))
-            writer.write("\t\n")
-
-    save_file_best = torch.load('./cache/best_save.data')
-    print('Train finished')
-    print('Best Val BLEU:%f, HIT:%f, COMMON:%f' % (
-        save_file_best['best_bleu'], save_file_best['best_hit'], save_file_best['best_common']))
-    seq2seq.load_state_dict(save_file_best['para'])
-    test_results, bleu, hit, com, ascore = eval_set(seq2seq, test_dataloader, seq_config, dg.test_sum_embs, dg.test_indexes, dg.test_qs)
-    print('Test BLEU:%f, HIT:%f, COMMON:%f, ASCORE:%f' % (bleu, hit, com, ascore))
-    with open('./result/best_save_bert.out.txt', 'w', encoding='utf-8') as f:
-        f.writelines([x + '\n' for x in test_results])
+    #     if epoch >= 0:
+    #         val_results, bleu, hit, com, ascore = eval_set(seq2seq, eval_dataloader, seq_config, dg.test_sum_embs, dg.test_indexes, dg.test_qs)
+    #         # validation steps
+    #
+    #         print(val_results[0:5])
+    #         print('BLEU:%f, HIT:%f, COMMON:%f, ASCORE:%f' % (bleu, hit, com, ascore))
+    #         if bleu > max_bleu:
+    #             max_bleu = bleu
+    #             save_file['epoch'] = epoch + 1
+    #             save_file['para'] = seq2seq.state_dict()
+    #             save_file['best_bleu'] = bleu
+    #             save_file['best_hit'] = hit
+    #             save_file['best_common'] = com
+    #             torch.save(save_file, './cache/best_save.data')
+    #     if epoch < num_train_epochs-1:
+    #         dg.restart_test()
+    #
+    #     if eval_accuracy > best_accuracy:
+    #         logger.info("**** Saving model.... *****")
+    #         best_accuracy = eval_accuracy
+    #         model_to_save = dcmn.module if hasattr(dcmn, 'module') else dcmn  # Only save the model it-self
+    #         output_model_file = os.path.join(output_dir, model_name)
+    #         torch.save(model_to_save.state_dict(), output_model_file)
+    #
+    #     result = {'eval_loss': eval_loss,
+    #               'best_accuracy': best_accuracy,
+    #               'eval_accuracy': eval_accuracy,
+    #               'global_step': global_step,
+    #               'lr_now': lr_pre,
+    #               'loss': tr_loss / nb_tr_steps}
+    #     output_eval_file = os.path.join(output_dir, output_file)
+    #     with open(output_eval_file, "a") as writer:
+    #         logger.info("***** Eval results *****")
+    #         writer.write("\t\n***** Eval results Epoch %d  %s *****\t\n" % (
+    #             epoch, time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))))
+    #         for key in sorted(result.keys()):
+    #             logger.info("  %s = %s", key, str(result[key]))
+    #             writer.write("%s = %s\t" % (key, str(result[key])))
+    #         writer.write("\t\n")
+    #
+    # save_file_best = torch.load('./cache/best_save.data')
+    # print('Train finished')
+    # print('Best Val BLEU:%f, HIT:%f, COMMON:%f' % (
+    #     save_file_best['best_bleu'], save_file_best['best_hit'], save_file_best['best_common']))
+    # seq2seq.load_state_dict(save_file_best['para'])
+    # test_results, bleu, hit, com, ascore = eval_set(seq2seq, seq_config, dg.test_sum_embs, dg.test_indexes, dg.test_qs)
+    # print('Test BLEU:%f, HIT:%f, COMMON:%f, ASCORE:%f' % (bleu, hit, com, ascore))
+    # with open('./result/best_save_bert.out.txt', 'w', encoding='utf-8') as f:
+    #     f.writelines([x + '\n' for x in test_results])
 
 

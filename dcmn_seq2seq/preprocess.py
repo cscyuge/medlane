@@ -19,12 +19,26 @@ class SwagExample(object):
                  start_ending,
                  endings,
                  key_embs,
+                 src_ids,
+                 src_masks,
+                 indices,
+                 tar_ids=None,
+                 tar_masks=None,
+                 tars=None,
+                 cudic=None,
                  label=None):
         self.swag_id = swag_id
         self.context_sentence = context_sentence
         self.start_ending = start_ending
         self.endings = endings
         self.key_embs = key_embs
+        self.src_ids = src_ids
+        self.src_masks = src_masks
+        self.indices = indices
+        self.tar_ids = tar_ids
+        self.tar_masks = tar_masks
+        self.tars = tars
+        self.cudic = cudic
         self.label = label
 
     def __str__(self):
@@ -49,7 +63,14 @@ class InputFeatures(object):
                  example_id,
                  choices_features,
                  label,
-                 key_embs
+                 key_embs,
+                 src_ids,
+                 src_masks,
+                 indices,
+                 tar_ids=None,
+                 tar_masks=None,
+                 tars=None,
+                 cudic=None
                  ):
         self.example_id = example_id
         self.choices_features = [
@@ -65,6 +86,14 @@ class InputFeatures(object):
         ]
         self.label = label
         self.key_embs = key_embs
+        self.src_ids = src_ids
+        self.src_masks = src_masks
+        self.indices = indices
+        self.tar_ids = tar_ids
+        self.tar_masks = tar_masks
+        self.tars = tars
+        self.cudic = cudic
+        self.label = label
 
 
 def _truncate_seq_pair(tokens_a, tokens_b, max_length):
@@ -85,21 +114,30 @@ def _truncate_seq_pair(tokens_a, tokens_b, max_length):
             tokens_b.pop(1)
 
 
-def read_swag_examples(input_file, is_training, max_pad_length, dg):
+def read_swag_examples(input_file, max_pad_length, dg):
     answer_file = input_file.replace('sentences', 'labels')
-    article, question, cts, key_embs, y, q_id = parse_mc(input_file, answer_file, max_pad_length, dg)
+    article, question, cts, key_embs, y, q_id, \
+        src_ids, src_masks, indices, tar_ids, tar_masks, tars, cudics  = parse_mc(input_file, answer_file, max_pad_length, dg)
 
     examples = [
         SwagExample(
-            swag_id=s8,
+            swag_id=s6,
             context_sentence=s1,
             start_ending=s2,  # in the swag dataset, the
             # common beginning of each
             # choice is stored in "sent2".
             endings=s3,
             key_embs=s4,
-            label=s7 if is_training else None
-        ) for i, (s1, s2, *s3, s4, s7, s8), in enumerate(zip(article, question, *cts, key_embs, y, q_id))
+            label=s5,
+            src_ids=s7,
+            src_masks=s8,
+            indices=s9,
+            tar_ids=s10,
+            tar_masks=s11,
+            tars=s12,
+            cudic=s13,
+        ) for i, (s1, s2, *s3, s4, s5, s6, s7, s8, s9, s10, s11, s12, s13) in
+                enumerate(zip(article, question, *cts, key_embs, y, q_id, src_ids, src_masks, indices, tar_ids, tar_masks, tars, cudics))
     ]
 
     return examples
@@ -195,16 +233,22 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
                 example_id=example.swag_id,
                 choices_features=choices_features,
                 label=label,
-                key_embs=example.key_embs
+                key_embs=example.key_embs,
+                src_ids=example.src_ids,
+                src_masks=example.src_masks,
+                indices=example.indices,
+                tar_ids=example.tar_ids,
+                tar_masks=example.tar_masks,
+                tars=example.tars,
+                cudic=example.cudic
             )
         )
 
     return features
 
 
-def get_dataloader(data_dir, data_file, num_choices, tokenizer, max_seq_length, batch_size, dg):
-    examples = read_swag_examples(os.path.join(data_dir, data_file), is_training=True,
-                                        max_pad_length=num_choices + 2, dg=dg)
+def get_dataloader(data_dir, data_file, num_choices, tokenizer, max_seq_length, batch_size, dg, is_training):
+    examples = read_swag_examples(os.path.join(data_dir, data_file), max_pad_length=num_choices + 2, dg=dg)
 
     features = convert_examples_to_features(
         examples, tokenizer, max_seq_length, True, dg)
@@ -217,11 +261,27 @@ def get_dataloader(data_dir, data_file, num_choices, tokenizer, max_seq_length, 
     all_key_embs = torch.tensor([f.key_embs for f in features], dtype=torch.float)
     # all_key_embs = all_key_embs.squeeze()
     all_label = torch.tensor([f.label for f in features], dtype=torch.long)
-    data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label, all_doc_len, all_ques_len,
-                               all_option_len, all_key_embs)
+    all_indices = torch.tensor([f.indices for f in features], dtype=torch.float)
+    all_src_ids = torch.tensor([f.src_ids for f in features], dtype=torch.long)
+    all_src_masks = torch.tensor([f.src_masks for f in features], dtype=torch.long)
 
-    sampler = SequentialSampler(data)
-    dataloader = DataLoader(data, sampler=sampler, batch_size=batch_size)
+    if is_training:
+        all_tar_ids = torch.tensor([f.tar_ids for f in features], dtype=torch.long)
+        all_tar_masks = torch.tensor([f.tar_masks for f in features], dtype=torch.long)
+        data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label, all_doc_len, all_ques_len,
+                             all_option_len, all_key_embs, all_src_ids, all_src_masks, all_indices, all_tar_ids,
+                             all_tar_masks)
 
-    return dataloader, len(examples)
+        sampler = SequentialSampler(data)
+        dataloader = DataLoader(data, sampler=sampler, batch_size=batch_size)
+        return dataloader, len(examples)
+    else:
+        all_tars = [f.tars for f in features]
+        all_cudic = [f.cudic for f in features]
+        data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label, all_doc_len, all_ques_len,
+                                   all_option_len, all_key_embs, all_src_ids, all_src_masks, all_indices)
+
+        sampler = SequentialSampler(data)
+        dataloader = DataLoader(data, sampler=sampler, batch_size=batch_size)
+        return dataloader, len(examples), all_tars, all_cudic
 

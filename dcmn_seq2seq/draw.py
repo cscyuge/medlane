@@ -3,7 +3,7 @@ import re
 import nltk
 import time
 from pytorch_pretrained_bert.tokenization import BertTokenizer
-from pytorch_pretrained_bert.modeling import BertPreTrainedModel,BertModel,BertConfig,BertPooler
+from pytorch_pretrained_bert.modeling import BertPreTrainedModel, BertModel, BertConfig, BertPooler
 import torch
 from dcmn_seq2seq.models.bert import Config
 from keras.preprocessing.sequence import pad_sequences
@@ -11,6 +11,7 @@ from torch.nn.functional import softmax
 
 from tqdm import tqdm
 import numpy as np
+
 
 def merge_mask(src, mask, tokenizer):
     mask_new = []
@@ -64,6 +65,7 @@ def is_similar(word_1, word_2, stop=False):
            min_distance(word_1, word_2) <= 2 or \
            flag
 
+
 def get_train_src_tar_txt(train_txt_path):
     src = []
     tar_1 = []
@@ -88,6 +90,7 @@ def get_train_src_tar_txt(train_txt_path):
                 tar_2.append(sentence)
     return src, tar_1, tar_2
 
+
 def get_test_src_tar_txt(test_txt_path):
     txt = open(test_txt_path, 'r').read()
     #     txt = txt.lower()
@@ -103,7 +106,7 @@ def get_test_src_tar_txt(test_txt_path):
         for sid, sentence in enumerate(sentences):
             if sid == 0:
                 src.append(sentence)
-            elif sid <=2:
+            elif sid <= 2:
                 cudic = {}
                 sentence = sentence[2:]
                 sentence = sentence.replace('].', '] .')
@@ -123,6 +126,7 @@ def get_test_src_tar_txt(test_txt_path):
                     tar_2.append(new_text)
     return src, tar_1, tar_2
 
+
 def get_dcmn_data_from_gt(src_words, tar_words, abbrs, max_pad_length, max_dcmn_seq_length, tokenizer):
     if tar_words[-1] != '.':
         tar_words.append('.')
@@ -130,13 +134,12 @@ def get_dcmn_data_from_gt(src_words, tar_words, abbrs, max_pad_length, max_dcmn_
     j = 0
     sentences = []
     labels = []
-    src = ['[CLS]']
+    srcs = []
     keys = []
     key_ans = {}
 
     while i < len(src_words):
         if src_words[i] == tar_words[j]:
-            src.append(src_words[i])
             i += 1
             j += 1
         else:
@@ -147,7 +150,6 @@ def get_dcmn_data_from_gt(src_words, tar_words, abbrs, max_pad_length, max_dcmn_
                 while q < len(tar_words) and tar_words[q] != src_words[p]:
                     q += 1
                 if q == len(tar_words):
-                    src.append(src_words[p])
                     p = p + 1
                     q = j + 1
                 else:
@@ -167,7 +169,7 @@ def get_dcmn_data_from_gt(src_words, tar_words, abbrs, max_pad_length, max_dcmn_
                     label = -1
                     skip_cnt = 0
                     for index, u in enumerate(abbrs[pre]):
-                        if index-skip_cnt>=max_pad_length-2:
+                        if index - skip_cnt >= max_pad_length - 2:
                             break
                         if len(u.split(' ')) > 10:
                             skip_cnt += 1
@@ -179,41 +181,41 @@ def get_dcmn_data_from_gt(src_words, tar_words, abbrs, max_pad_length, max_dcmn_
                     while len(temp) < max_pad_length:
                         temp.append('[PAD]')
                     if len(tokenizer.tokenize(temp[0])) + len(tokenizer.tokenize(temp[1])) + len(
-                            tokenizer.tokenize(temp[2])) >= max_dcmn_seq_length\
-                            or label<0 or label >= max_pad_length - 2:
-                        src.append(pre)
+                            tokenizer.tokenize(temp[2])) >= max_dcmn_seq_length \
+                            or label < 0 or label >= max_pad_length - 2:
+                        pass
                     else:
                         sentences.append(temp)
                         labels.append(label)
                         keys.append(pre)
-                        src.append('[MASK]')
                         key_ans[pre] = label
-                else:
-                    src.append(pre)
+                        srcs.append('[CLS] ' + ' '.join(src_words[:i]) + ' [MASK] ' + ' '.join(src_words[p:]))
 
             i = p
             j = q
-    return sentences, labels, src, keys, key_ans
+    return sentences, labels, srcs, keys, key_ans
 
 
 def get_dcmn_data_from_step1(src_words, masks, k_a, abbrs, max_pad_length, max_dcmn_seq_length, tokenizer):
     sentences = []
-    src = ['[CLS]']
+    srcs = []
     keys = []
     labels = []
     for i, mask in enumerate(masks):
         if mask == 0:
-            src.append(src_words[i])
             continue
         key = src_words[i]
-        if key in abbrs.keys() and key in k_a.keys() and k_a[key]>=0 and k_a[key]<max_pad_length-2:
+        if (key in abbrs.keys() and key in k_a.keys() and 0 <= k_a[key] < max_pad_length - 2) or \
+                (key in abbrs.keys() and key not in k_a.keys() and len(abbrs[key]) == 1):
             temp = [' '.join(src_words), 'what is {} ?'.format(key)]
-            label = -1
             if key in k_a.keys():
                 label = k_a[key]
+            else:
+                label = 0
+
             skip_cnt = 0
             for index, u in enumerate(abbrs[key]):
-                if index-skip_cnt >= max_pad_length-2:
+                if index - skip_cnt >= max_pad_length - 2:
                     break
                 if len(u.split(' ')) > 10:
                     skip_cnt += 1
@@ -226,29 +228,29 @@ def get_dcmn_data_from_step1(src_words, masks, k_a, abbrs, max_pad_length, max_d
 
             if len(tokenizer.tokenize(temp[0])) + len(tokenizer.tokenize(temp[1])) + len(
                     tokenizer.tokenize(temp[2])) >= max_dcmn_seq_length:
-                src.append(key)
                 continue
             sentences.append(temp)
             keys.append(key)
-            src.append('[SEP] [MASK] [SEP]')
             labels.append(label)
-        elif key in abbrs.keys() and key not in k_a.keys() and len(abbrs[key]) == 1:
-            src.append(abbrs[key][0])
-        else:
-            src.append(key)
+            srcs.append('[CLS] ' + ' '.join(src_words[:i]) + ' [SEP] [MASK] [SEP] ' + ' '.join(src_words[i + 1:]))
 
-    return sentences, labels, src, keys
+    return sentences, labels, srcs, keys
 
-def add_sep(train_srcs, train_tars):
+
+def add_sep(train_srcs, train_tars, train_order):
     train_src_new = []
     train_tar_new = []
-
-    for src, tar in zip(train_srcs, train_tars):
-        src = ' '.join(src)
+    i, j = 0, 0
+    for src in train_srcs:
         src = src.split(' ')
         src_new = src
         if src_new[-1] != '.':
             src_new.append('.')
+        while j >= train_order[i]:
+            i += 1
+            j = 0
+        j += 1
+        tar = train_tars[i]
         tar = tar.split(' ')
         tar_new = []
         p = 0
@@ -291,13 +293,14 @@ def add_sep(train_srcs, train_tars):
 
     return train_input, train_output
 
+
 def get_embs(dcmn_keys, abbrs, max_pad_length):
     device = torch.device('cuda')
     bert_model = 'bert-base-cased'
     bert = BertModel.from_pretrained(bert_model)
     bert.to(device)
     tokenizer = BertTokenizer.from_pretrained(bert_model, do_lower_case=False)
-    pad_tokens =['[PAD]']
+    pad_tokens = ['[PAD]']
     ids = tokenizer.convert_tokens_to_ids(pad_tokens)
     inputs = [ids]
     inputs = torch.tensor(inputs)
@@ -323,7 +326,7 @@ def get_embs(dcmn_keys, abbrs, max_pad_length):
             with torch.no_grad():
                 _, embs = bert(inputs)
                 emb_values.append(embs.cpu().detach().numpy()[0])
-        while len(emb_values) < max_pad_length-2:
+        while len(emb_values) < max_pad_length - 2:
             emb_values.append(pad_embs)
         dcmn_embs.append(emb_values)
     return dcmn_embs
@@ -342,21 +345,18 @@ def seq_tokenize(input_data, tokenizer, max_seq_length):
     return ids, masks
 
 
-def get_index(srcs, batch_size):
+def get_index(srcs):
     tar_indexs = []
     for i, src in enumerate(srcs):
-        p = 0
-        indexs = []
         for j, u in enumerate(src):
             if u == 4:
-                indexs.append((i%batch_size,j))
-        tar_indexs.append(indexs)
+                tar_indexs.append([0.0] * j + [1.0] + [0.0] * (len(src) - j - 1))
+                break
     return tar_indexs
 
 
-
 class DataGenerator():
-    def __init__(self, seq_batch_size, max_pad_length=16, max_seq_length=64, cuda=True, emb_size = 768):
+    def __init__(self, seq_batch_size, max_pad_length=16, max_seq_length=64, cuda=True, emb_size=768):
         if cuda:
             self.device = torch.device('cuda')
         else:
@@ -376,28 +376,30 @@ class DataGenerator():
         self.test_src_txt, self.test_tar_1_txt, self.test_tar_2_txt = get_test_src_tar_txt(self.test_txt_path)
 
         # generate data
-        self.train_order = []
         self.train_seq_srcs = []
         self.train_dcmn_srcs = []
         self.train_dcmn_labels = []
         self.train_keys = []
-        self.test_order = []
+        self.train_order = []
         self.test_seq_srcs = []
         self.test_dcmn_srcs = []
         self.test_dcmn_labels = []
-        self.test_keys=[]
+        self.test_keys = []
+        self.test_order = []
         tokenizer = BertTokenizer.from_pretrained('bert-base-cased', do_lower_case=False)
 
         for i, (src, tar) in enumerate(zip(self.train_src_txt, self.train_tar_1_txt)):
             src = nltk.word_tokenize(src)
             tar = nltk.word_tokenize(tar)
-            sentences, labels, src, keys, key_ans = get_dcmn_data_from_gt(src, tar, self.abbrs, max_pad_length=max_pad_length,
-                                                                    max_dcmn_seq_length=max_seq_length, tokenizer=tokenizer)
-            self.train_order.append(len(sentences))
+            sentences, labels, srcs, keys, key_ans = get_dcmn_data_from_gt(src, tar, self.abbrs,
+                                                                           max_pad_length=max_pad_length,
+                                                                           max_dcmn_seq_length=max_seq_length,
+                                                                           tokenizer=tokenizer)
             self.train_dcmn_srcs.extend(sentences)
             self.train_dcmn_labels.extend(labels)
-            self.train_seq_srcs.append(src)
+            self.train_seq_srcs.extend(srcs)
             self.train_keys.extend(keys)
+            self.train_order.append(len(sentences))
 
         with open('./data/test_mask_step2_2030.pkl', 'rb') as f:
             test_mask_step2 = pickle.load(f)
@@ -412,24 +414,27 @@ class DataGenerator():
         for i, (src, tar) in enumerate(zip(self.test_src_txt, self.test_tar_1_txt)):
             src = nltk.word_tokenize(src)
             tar = nltk.word_tokenize(tar)
-            sentences, labels, src, keys, key_ans = get_dcmn_data_from_gt(src, tar, self.abbrs, max_pad_length=max_pad_length,
-                                                                          max_dcmn_seq_length=max_seq_length, tokenizer=tokenizer)
+            sentences, labels, src, keys, key_ans = get_dcmn_data_from_gt(src, tar, self.abbrs,
+                                                                          max_pad_length=max_pad_length,
+                                                                          max_dcmn_seq_length=max_seq_length,
+                                                                          tokenizer=tokenizer)
             k_a.append(key_ans)
 
         for i, (sts, masks, k_a) in enumerate(zip(self.test_src_txt, test_mask, k_a)):
             sts = nltk.word_tokenize(sts)
-            sentences, labels, src, keys = get_dcmn_data_from_step1(sts, masks, k_a, self.abbrs, max_pad_length=max_pad_length,
-                                                                    max_dcmn_seq_length=max_seq_length, tokenizer=tokenizer)
-
-            self.test_keys.extend(keys)
+            sentences, labels, srcs, keys = get_dcmn_data_from_step1(sts, masks, k_a, self.abbrs,
+                                                                     max_pad_length=max_pad_length,
+                                                                     max_dcmn_seq_length=max_seq_length,
+                                                                     tokenizer=tokenizer)
             self.test_order.append(len(sentences))
+            self.test_keys.extend(keys)
             self.test_dcmn_srcs.extend(sentences)
             self.test_dcmn_labels.extend(labels)
-            self.test_seq_srcs.append(src)
+            self.test_seq_srcs.extend(srcs)
 
-
-        self.train_seq_srcs, self.train_tar_2_txt = add_sep(train_srcs=self.train_seq_srcs, train_tars=self.train_tar_2_txt)
-        self.test_seq_srcs = [' '.join(u) for u in self.test_seq_srcs]
+        self.train_seq_srcs, self.train_tar_2_txt = add_sep(train_srcs=self.train_seq_srcs,
+                                                            train_tars=self.train_tar_2_txt,
+                                                            train_order=self.train_order)
 
         # self.train_embs = get_embs(self.train_keys, self.abbrs, max_pad_length)
         # self.test_embs = get_embs(self.test_keys, self.abbrs, max_pad_length)
@@ -443,7 +448,6 @@ class DataGenerator():
         with open('./data/test_embs.pkl', 'rb') as f:
             self.test_embs = pickle.load(f)
 
-
         seq_config = Config(seq_batch_size)
         seq_tokenizer = seq_config.tokenizer
         self.train_seq_srcs_ids, self.train_seq_srcs_masks = seq_tokenize(self.train_seq_srcs, seq_tokenizer,
@@ -455,101 +459,9 @@ class DataGenerator():
         self.cudics = pickle.load(open('./data/test_cudics.pkl', 'rb'))
         self.seq_test_tars = pickle.load(open('./data/test_tars.pkl', 'rb'))
 
-        self.train_indexes = get_index(self.train_seq_srcs_ids, seq_batch_size)
-        self.test_indexes = get_index(self.test_seq_srcs_ids, seq_batch_size)
+        self.train_indices = get_index(self.train_seq_srcs_ids)
+        self.test_indices = get_index(self.test_seq_srcs_ids)
 
-        self.p_train, self.p_test = 0, 0
-        self.q_train, self.q_test = 0, 0
-        self.p_train_emb, self.q_train_emb = 0, 0
-        self.p_test_emb, self.q_test_emb = 0,0
-        self.train_sum_embs = []
-        self.test_sum_embs = []
-        self.test_qs = [0]
-
-        self.seq_train_data = []    # src_id(64), src_mask(64), tar_id(64), tar_mask(64), indexes(index of key)
-                                    # 0              1            2              3            4
-        for src_id, src_mask, tar_id, tar_mask, indexes in zip(self.train_seq_srcs_ids, self.train_seq_srcs_masks,
-                                                               self.train_seq_tars_ids, self.train_seq_tars_masks,
-                                                               self.train_indexes):
-            self.seq_train_data.append([src_id, src_mask, tar_id, tar_mask, indexes])
-
-        self.seq_test_data = []  # src_id(64), src_mask(64), tars, cudics,
-                                  # 0              1            2     3
-        for src_id, src_mask, tars, cudic in zip(self.test_seq_srcs_ids, self.test_seq_srcs_masks,
-                                                               self.seq_test_tars, self.cudics):
-            self.seq_test_data.append([src_id, src_mask, tars, cudic])
-
-        self.seq_batch_size = seq_batch_size
-
-    def train_data_to_tensor(self, datas):
-        src_ids = torch.LongTensor([_[0] for _ in datas]).to(self.device)
-        src_masks = torch.LongTensor([_[1] for _ in datas]).to(self.device)
-        tar_ids = torch.LongTensor([_[2] for _ in datas]).to(self.device)
-        tar_masks = torch.LongTensor([_[3] for _ in datas]).to(self.device)
-        indexes = [_[4] for _ in datas]
-        return src_ids, src_masks, tar_ids, tar_masks, indexes
-
-
-    def update_train(self, batch_scores, batch_embs, dcmn_config):
-        # batch_scores : batch_size * num_choices
-        # batch_embs   : batch_size * num_choices * emb_size
-        batch_scores = softmax(batch_scores, dim=1)
-        batch_scores = batch_scores.unsqueeze(-1).expand(dcmn_config.train_batch_size, dcmn_config.num_choices, self.emb_size)
-        batch_embs = torch.tensor(batch_embs).to(self.device)
-        sum_new_embs = torch.sum(batch_embs*batch_scores, dim=1)
-        self.train_sum_embs.extend(sum_new_embs)
-        for _ in range(dcmn_config.train_batch_size):
-            if self.p_train_emb >= self.train_order[self.p_train]:
-                self.p_train += 1
-                self.p_train_emb = 0
-            else:
-                self.p_train_emb += 1
-                self.q_train_emb += 1
-
-        if self.p_train - self.q_train >= self.seq_batch_size:
-            batch_data = self.seq_train_data[self.q_train: self.q_train + self.seq_batch_size]
-            self.q_train += self.seq_batch_size
-            batch_embs = self.train_sum_embs[:self.q_train_emb]
-            self.train_sum_embs = self.train_sum_embs[self.q_train_emb:]
-            self.q_train_emb = 0
-            return self.train_data_to_tensor(batch_data), batch_embs
-        else:
-            return None, None
-
-    def restart_train(self):
-        self.p_train = 0
-        self.q_train = 0
-        self.p_train_emb = 0
-        self.q_train_emb = 0
-        self.train_sum_embs = []
-
-    def update_test(self, batch_scores, batch_embs, dcmn_config):
-        batch_scores = softmax(batch_scores, dim=1)
-        batch_scores = batch_scores.unsqueeze(-1).expand(dcmn_config.test_batch_size, dcmn_config.num_choices,
-                                                         self.emb_size)
-        batch_embs = torch.tensor(batch_embs).to(self.device)
-        sum_new_embs = torch.sum(batch_embs * batch_scores, dim=1)
-        self.test_sum_embs.extend(sum_new_embs)
-
-        for _ in range(dcmn_config.test_batch_size):
-            if self.p_test_emb >= self.test_order[self.p_test]:
-                self.p_test += 1
-                self.p_test_emb = 0
-            else:
-                self.p_test_emb += 1
-                self.q_test_emb += 1
-
-        if self.p_test - self.q_test >= self.seq_batch_size:
-            self.q_test += self.seq_batch_size
-            self.test_qs.append(self.q_test_emb)
-
-    def restart_test(self):
-        self.p_test = 0
-        self.q_test = 0
-        self.p_test_emb = 0
-        self.q_test_emb =0
-        self.test_qs = [0]
-        self.test_sum_embs = []
 
 
     def build_dataset_eval(self):
@@ -566,90 +478,8 @@ class DataGenerator():
         return test_data
 
 
-
 if __name__ == '__main__':
     # t = time.time()
     dg = DataGenerator(16)
     # print('done, time cost:{}'.format(time.time()-t))
 
-
-    # device = torch.device('cuda')
-    # bert_model ='bert-base-cased'
-    # bert = BertModel.from_pretrained(bert_model)
-    # bert.to(device)
-    # tokenizer = BertTokenizer.from_pretrained(bert_model, do_lower_case=False)
-    # arr = []
-    # key = 'home cup cat dog'
-    # tokens = tokenizer.tokenize(key)
-    # print(tokens)
-    # ids = tokenizer.convert_tokens_to_ids(tokens)
-    # inputs = [ids]
-    # inputs = torch.tensor(inputs)
-    # inputs = inputs.to(device)
-    #
-    # t = time.time()
-    # print(inputs)
-    # _, outputs = bert(inputs)
-    # outputs = outputs.cpu().detach().numpy()
-    # print(np.shape(outputs))
-    # print(outputs[0][:10])
-    #
-    # temp = []
-    # for u in tokens:
-    #     ids = tokenizer.convert_tokens_to_ids([u])
-    #     inputs = [ids]
-    #     inputs = torch.tensor(inputs)
-    #     inputs = inputs.to(device)
-    #     _, outputs = bert(inputs)
-    #     outputs = outputs.cpu().detach().numpy()
-    #     temp.append(outputs[0][:10])
-    # temp = np.asarray(temp)
-    # print(temp.sum(axis=0)/4.0)
-    #
-    # print('time cost:',time.time()-t)
-    #
-    # print(outputs)
-
-
-
-
-
-
-
-#
-# txt_loader = None
-#
-#
-# class DataLoader_DCMN():
-#     pass
-#
-# def parse_mc():
-#     data, res = None, None
-#     examples = data
-#     return examples, res
-#
-# def read_swag_examples():
-#     data,res = parse_mc()
-#     examples = data # parse data to examples
-#     return examples, res
-#
-#
-#
-# for i,batch in enumerate(txt_loader):
-#     # batch_size = 16
-#     examples, res = read_swag_examples()
-#     data_loader_dcmn = DataLoader_DCMN()
-#     # train dcmn with data_loader_dcmn
-#
-#     for i,batch in enumerate(data_loader_dcmn):
-#         inputs = batch
-#         outputs = dcmn(inputs)
-#         data_seq = generator.update(outputs)
-#         if out is not None:
-#             outputs = seq2seq(data_seq)
-#
-#             loss.backward()
-#
-#     for i,batch in enumerate(data_loader_seq_res):
-#         # train seq with the res
-#         pass
