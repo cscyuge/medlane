@@ -27,6 +27,7 @@ class DCMN_Config():
         self.max_seq_length = 64
         self.train_batch_size = 1
         self.eval_batch_size = 1
+        self.seq_batch_size = 1
         self.num_choices = 14
         self.learning_rate = 1e-5
         self.num_train_epochs = 2.0
@@ -79,7 +80,6 @@ class DCMN_Config():
 
         self.t_total = 0
 
-        self.seq_batch_size = 1
 
 
 class Seq2seq_Config():

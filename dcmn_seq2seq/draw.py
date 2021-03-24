@@ -294,12 +294,8 @@ def add_sep(train_srcs, train_tars, train_order):
     return train_input, train_output
 
 
-def get_embs(dcmn_keys, abbrs, max_pad_length):
-    device = torch.device('cuda')
-    bert_model = 'bert-base-cased'
-    bert = BertModel.from_pretrained(bert_model)
-    bert.to(device)
-    tokenizer = BertTokenizer.from_pretrained(bert_model, do_lower_case=False)
+def get_embs(bert, tokenizer,device, dcmn_keys, abbrs, max_pad_length):
+
     pad_tokens = ['[PAD]']
     ids = tokenizer.convert_tokens_to_ids(pad_tokens)
     inputs = [ids]
@@ -356,7 +352,7 @@ def get_index(srcs):
 
 
 class DataGenerator():
-    def __init__(self, seq_batch_size, max_pad_length=16, max_seq_length=64, cuda=True, emb_size=768):
+    def __init__(self, max_pad_length=16, max_seq_length=64, cuda=True, emb_size=768, tokenizer = None, seq_tokenizer=None):
         if cuda:
             self.device = torch.device('cuda')
         else:
@@ -386,7 +382,8 @@ class DataGenerator():
         self.test_dcmn_labels = []
         self.test_keys = []
         self.test_order = []
-        tokenizer = BertTokenizer.from_pretrained('bert-base-cased', do_lower_case=False)
+        if tokenizer is None:
+            tokenizer = BertTokenizer.from_pretrained('bert-base-cased', do_lower_case=False)
 
         for i, (src, tar) in enumerate(zip(self.train_src_txt, self.train_tar_1_txt)):
             src = nltk.word_tokenize(src)
@@ -436,8 +433,11 @@ class DataGenerator():
                                                             train_tars=self.train_tar_2_txt,
                                                             train_order=self.train_order)
 
-        # self.train_embs = get_embs(self.train_keys, self.abbrs, max_pad_length)
-        # self.test_embs = get_embs(self.test_keys, self.abbrs, max_pad_length)
+        # bert_model = 'bert-base-cased'
+        # bert = BertModel.from_pretrained(bert_model)
+        # bert.to(self.device)
+        # self.train_embs = get_embs(bert, tokenizer, self.device, self.train_keys, self.abbrs, max_pad_length)
+        # self.test_embs = get_embs(bert, tokenizer, self.device, self.test_keys, self.abbrs, max_pad_length)
         # with open('./data/train_embs.pkl', 'wb') as f:
         #     pickle.dump(self.train_embs, f)
         # with open('./data/test_embs.pkl', 'wb') as f:
@@ -448,8 +448,9 @@ class DataGenerator():
         with open('./data/test_embs.pkl', 'rb') as f:
             self.test_embs = pickle.load(f)
 
-        seq_config = Config(seq_batch_size)
-        seq_tokenizer = seq_config.tokenizer
+        if seq_tokenizer is None:
+            seq_config = Config(16)
+            seq_tokenizer = seq_config.tokenizer
         self.train_seq_srcs_ids, self.train_seq_srcs_masks = seq_tokenize(self.train_seq_srcs, seq_tokenizer,
                                                                           max_seq_length)
         self.train_seq_tars_ids, self.train_seq_tars_masks = seq_tokenize(self.train_tar_2_txt, seq_tokenizer,

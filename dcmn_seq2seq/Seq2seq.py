@@ -371,13 +371,13 @@ class Seq2seq(nn.Module):
 
         encoder_outputs, encoder_hidden = self.encoder(batch_src)
 
-        indices = torch.unsqueeze(indices, -1)
-        combined_embeddings = torch.matmul(indices, sum_embs) + encoder_outputs
+        combined_embeddings = torch.matmul(indices.unsqueeze(-1), sum_embs.unsqueeze(1)) + encoder_outputs
 
         target_variable = batch_tar
         result = self.decoder(inputs=target_variable,
                               encoder_hidden=encoder_hidden,
                               encoder_outputs=combined_embeddings,
+                              # encoder_outputs = encoder_outputs,
                               function=self.decode_function,
                               teacher_forcing_ratio=teacher_forcing_ratio)
         return result

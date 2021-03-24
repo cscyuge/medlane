@@ -45,8 +45,7 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message
                     datefmt='%m/%d/%Y %H:%M:%S',
                     level=logging.INFO)
 logger = logging.getLogger(__name__)
-TASK_NAME = 'mctest' #'roc' 'coin' 'race' 'mctest'
-NUM_CHOICE = 4
+
 
 def build_dcmn():
     dcmn_config = DCMN_Config()
@@ -58,7 +57,10 @@ def build_dcmn():
         torch.cuda.manual_seed_all(dcmn_config.seed)
 
     tokenizer = dcmn_config.tokenizer
-    dg = DataGenerator(dcmn_config.seq_batch_size)
+    seq_config = seq_bert.Config(dcmn_config.seq_batch_size, dcmn_config.no_cuda)
+    dg = DataGenerator(max_pad_length=dcmn_config.num_choices+2,
+                       max_seq_length = dcmn_config.max_seq_length, cuda=not dcmn_config.no_cuda,
+                       tokenizer = dcmn_config.tokenizer, seq_tokenizer=seq_config.tokenizer)
 
     train_dataloader, train_examples_size = get_dataloader(data_dir=dcmn_config.data_dir, data_file=dcmn_config.train_file,
                                                            num_choices=dcmn_config.num_choices,
@@ -101,13 +103,12 @@ def build_dcmn():
                          t_total=dcmn_config.t_total)
     loss_fun = torch.nn.CrossEntropyLoss()
 
-    return model, dcmn_config, train_dataloader, eval_dataloader, optimizer, loss_fun, dg
+    return model, dcmn_config, train_dataloader, eval_dataloader, optimizer, loss_fun, dg , seq_config
 
 
-def build_seq2seq(hidden_size, batch_size, max_len, no_cuda, dg):
+def build_seq2seq(config, hidden_size, max_len, no_cuda, dg):
     bidirectional = False
 
-    config = seq_bert.Config(batch_size, no_cuda)
     config.hidden_size = hidden_size
 
     encoder = seq_bert.Model(config).to(config.device)
@@ -136,12 +137,12 @@ def build_seq2seq(hidden_size, batch_size, max_len, no_cuda, dg):
     if not no_cuda:
         seq2seq.cuda()
     loss_fun = torch.nn.NLLLoss(reduce=False)
-    return seq2seq, config, optimizer, loss_fun
+    return seq2seq, optimizer, loss_fun
 
 def main():
-    dcmn, dcmn_config, dcmn_train_dataloader, dcmn_eval_dataloader, dcmn_optimizer, dcmn_loss_fun, dg = build_dcmn()
+    dcmn, dcmn_config, dcmn_train_dataloader, dcmn_eval_dataloader, dcmn_optimizer, dcmn_loss_fun, dg, seq_config = build_dcmn()
 
-    seq2seq, seq_config, seq_optimizer, seq_loss_fun= build_seq2seq(768, dcmn_config.seq_batch_size, 64, dcmn_config.no_cuda, dg)
+    seq2seq, seq_optimizer, seq_loss_fun = build_seq2seq(seq_config, 768, dcmn_config.max_seq_length, dcmn_config.no_cuda, dg)
     train_valid(dcmn, dcmn_config, dcmn_train_dataloader, dcmn_eval_dataloader, dcmn_optimizer, dcmn_loss_fun,
                 seq2seq,seq_config, seq_optimizer, seq_loss_fun, dg)
 

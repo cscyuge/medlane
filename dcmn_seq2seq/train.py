@@ -70,32 +70,33 @@ def train(model, dataloader, device, optimizer, global_step, t_total,
         input_ids, input_mask, segment_ids, label_ids, doc_len, ques_len, option_len, key_embs,\
             src_ids, src_masks, indices, tar_ids, tar_masks= batch
         outputs = model(input_ids, segment_ids, input_mask, doc_len, ques_len, option_len)
-
         loss = loss_fun(outputs, label_ids)
+
         batch_scores = softmax(outputs, dim=1)
         batch_scores = batch_scores.unsqueeze(-1).expand(dcmn_config.train_batch_size, dcmn_config.num_choices, seq_config.hidden_size)
         sum_embs = torch.sum(key_embs * batch_scores, dim=1)
 
-        # src_ids, src_masks, tar_ids, tar_masks, indexes = seq_batch_input
         batch_src = [src_ids, src_masks]
         batch_tar = [tar_ids, tar_masks]
         decoder_outputs, decoder_hidden, ret_dict = seq2seq(batch_src, indices, sum_embs, batch_tar[0], 0.5)
-        seq_optimizer.zero_grad()
         target = batch_tar[0][:, 1:].reshape(-1)
         mask = batch_tar[1][:, 1:].reshape(-1).float()
         logit = torch.stack(decoder_outputs, 1).view(target.shape[0], -1)
-        seq_loss = (seq_loss_fun(input=logit, target=target) * mask).sum() / mask.sum() + loss*5
-        seq_loss.backward()
-        seq_optimizer.step()
+
+        seq_loss = (seq_loss_fun(input=logit, target=target) * mask).sum() / mask.sum()
+        loss  = loss*5+seq_loss
 
         # if gradient_accumulation_steps > 1:
         #     loss = loss / gradient_accumulation_steps
-        tr_loss += seq_loss.item()
+        tr_loss += loss.item()
         nb_tr_examples += input_ids.size(0)
         nb_tr_steps += 1
 
 
-        # loss.backward()
+        loss.backward()
+
+        seq_optimizer.zero_grad()
+        seq_optimizer.step()
         if (step + 1) % gradient_accumulation_steps == 0:
             # modify learning rate with special warm up BERT uses
             lr_this_step = learning_rate * warmup_linear(global_step / t_total, warmup_proportion)
@@ -157,7 +158,7 @@ def eval_set(model, dataloader, config, test_sum_embs, test_index, test_qs):
 
     for i, (batch_src, train_tar, train_dic) in tqdm(enumerate(dataloader)):
         replace_embs = test_sum_embs[test_qs[i]: test_qs[i+1]]
-        decoder_outputs, decoder_hidden, ret_dict = model(batch_src,test_index[i*config.test_batch_size: (i+1)*config.test_batch_size], replace_embs, None, 0.0)
+        decoder_outputs, decoder_hidden, ret_dict = model(batch_src,test_index[i*config.batch_size: (i+1)*config.batch_size], replace_embs, None, 0.0)
         symbols = ret_dict['sequence']
         symbols = torch.cat(symbols, 1).data.cpu().numpy()
         sentences, sep = decode_sentence(batch_src, symbols, config)

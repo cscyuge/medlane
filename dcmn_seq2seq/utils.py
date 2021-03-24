@@ -2,16 +2,11 @@ from torch.autograd import Variable
 from torch.nn.functional import softmax
 import pickle
 import argparse
-from pytorch_pretrained_bert.modeling import BertModel
-from pytorch_pretrained_bert.tokenization import BertTokenizer
-
 
 import torch
 from tqdm import tqdm
 import time
 from datetime import timedelta
-from dcmn_seq2seq.draw import DataGenerator
-dg = DataGenerator(16)
 
 PAD, CLS = '[PAD]', '[CLS]'  # padding符号, bert中综合信息符号
 
