@@ -56,9 +56,9 @@ def set_optimizer_params_grad(named_params_optimizer, named_params_model, test_n
     return is_nan
 
 
-def train(model, dataloader, device, optimizer, global_step, t_total,
+def train(model, dataloader, device, optimizer, dcmn_scheduler, global_step, t_total,
           gradient_accumulation_steps, warmup_proportion, learning_rate, loss_fun, dcmn_config,
-          seq2seq, seq_config, seq_optimizer, seq_loss_fun, dg):
+          seq2seq, seq_config, seq_optimizer, seq_scheduler, seq_loss_fun, dg):
     model.train()
     seq2seq.train()
 
@@ -84,19 +84,20 @@ def train(model, dataloader, device, optimizer, global_step, t_total,
         logit = torch.stack(decoder_outputs, 1).view(target.shape[0], -1)
 
         seq_loss = (seq_loss_fun(input=logit, target=target) * mask).sum() / mask.sum()
-        loss  = loss*5+seq_loss
+        loss = loss*5+seq_loss
 
-        # if gradient_accumulation_steps > 1:
-        #     loss = loss / gradient_accumulation_steps
+        if gradient_accumulation_steps > 1:
+            loss = loss / gradient_accumulation_steps
         tr_loss += loss.item()
         nb_tr_examples += input_ids.size(0)
         nb_tr_steps += 1
-
 
         loss.backward()
 
         seq_optimizer.zero_grad()
         seq_optimizer.step()
+        seq_scheduler.step()
+
         if (step + 1) % gradient_accumulation_steps == 0:
             # modify learning rate with special warm up BERT uses
             lr_this_step = learning_rate * warmup_linear(global_step / t_total, warmup_proportion)
@@ -104,6 +105,7 @@ def train(model, dataloader, device, optimizer, global_step, t_total,
                 param_group['lr'] = lr_this_step
             optimizer.step()
             optimizer.zero_grad()
+            dcmn_scheduler.step()
             global_step += 1
 
     # logger.info("lr = %f", lr_this_step)
@@ -176,8 +178,8 @@ def eval_set(model, dataloader, config, test_sum_embs, test_index, test_qs):
     return sentences, bleu, hit, com, ascore
 
 
-def train_valid(dcmn, dcmn_config, train_dataloader, eval_dataloader, dcmn_optimizer, dcmn_loss_fun,
-                seq2seq, seq_config, seq_optimizer, seq_loss_fun, dg):
+def train_valid(dcmn, dcmn_config, train_dataloader, eval_dataloader, dcmn_optimizer,dcmn_scheduler, dcmn_loss_fun,
+                seq2seq, seq_config, seq_optimizer, seq_scheduler, seq_loss_fun, dg):
     num_train_epochs = dcmn_config.num_train_epochs
     device = dcmn_config.device
     t_total = dcmn_config.t_total
@@ -196,10 +198,10 @@ def train_valid(dcmn, dcmn_config, train_dataloader, eval_dataloader, dcmn_optim
     for epoch in range(int(num_train_epochs)):
         logger.info("**** Epoch {} *****".format(epoch))
 
-        tr_loss, nb_tr_steps, global_step, lr_pre = train(dcmn, train_dataloader, device, dcmn_optimizer, global_step,
+        tr_loss, nb_tr_steps, global_step, lr_pre = train(dcmn, train_dataloader, device, dcmn_optimizer,dcmn_scheduler, global_step,
                                                           t_total, gradient_accumulation_steps, warmup_proportion,
                                                           learning_rate, dcmn_loss_fun, dcmn_config,
-                                                          seq2seq, seq_config, seq_optimizer, seq_loss_fun, dg)
+                                                          seq2seq, seq_config, seq_optimizer,seq_scheduler, seq_loss_fun, dg)
 
         eval_loss, eval_accuracy = valid(dcmn, eval_dataloader, device, dcmn_loss_fun, dg)
     #     if epoch >= 0:
@@ -216,31 +218,29 @@ def train_valid(dcmn, dcmn_config, train_dataloader, eval_dataloader, dcmn_optim
     #             save_file['best_hit'] = hit
     #             save_file['best_common'] = com
     #             torch.save(save_file, './cache/best_save.data')
-    #     if epoch < num_train_epochs-1:
-    #         dg.restart_test()
     #
-    #     if eval_accuracy > best_accuracy:
-    #         logger.info("**** Saving model.... *****")
-    #         best_accuracy = eval_accuracy
-    #         model_to_save = dcmn.module if hasattr(dcmn, 'module') else dcmn  # Only save the model it-self
-    #         output_model_file = os.path.join(output_dir, model_name)
-    #         torch.save(model_to_save.state_dict(), output_model_file)
-    #
-    #     result = {'eval_loss': eval_loss,
-    #               'best_accuracy': best_accuracy,
-    #               'eval_accuracy': eval_accuracy,
-    #               'global_step': global_step,
-    #               'lr_now': lr_pre,
-    #               'loss': tr_loss / nb_tr_steps}
-    #     output_eval_file = os.path.join(output_dir, output_file)
-    #     with open(output_eval_file, "a") as writer:
-    #         logger.info("***** Eval results *****")
-    #         writer.write("\t\n***** Eval results Epoch %d  %s *****\t\n" % (
-    #             epoch, time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))))
-    #         for key in sorted(result.keys()):
-    #             logger.info("  %s = %s", key, str(result[key]))
-    #             writer.write("%s = %s\t" % (key, str(result[key])))
-    #         writer.write("\t\n")
+        if eval_accuracy > best_accuracy:
+            logger.info("**** Saving model.... *****")
+            best_accuracy = eval_accuracy
+            model_to_save = dcmn.module if hasattr(dcmn, 'module') else dcmn  # Only save the model it-self
+            output_model_file = os.path.join(output_dir, model_name)
+            torch.save(model_to_save.state_dict(), output_model_file)
+
+        result = {'eval_loss': eval_loss,
+                  'best_accuracy': best_accuracy,
+                  'eval_accuracy': eval_accuracy,
+                  'global_step': global_step,
+                  'lr_now': lr_pre,
+                  'loss': tr_loss / nb_tr_steps}
+        output_eval_file = os.path.join(output_dir, output_file)
+        with open(output_eval_file, "a") as writer:
+            logger.info("***** Eval results *****")
+            writer.write("\t\n***** Eval results Epoch %d  %s *****\t\n" % (
+                epoch, time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))))
+            for key in sorted(result.keys()):
+                logger.info("  %s = %s", key, str(result[key]))
+                writer.write("%s = %s\t" % (key, str(result[key])))
+            writer.write("\t\n")
     #
     # save_file_best = torch.load('./cache/best_save.data')
     # print('Train finished')

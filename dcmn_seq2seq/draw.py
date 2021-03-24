@@ -2,8 +2,7 @@ import pickle
 import re
 import nltk
 import time
-from pytorch_pretrained_bert.tokenization import BertTokenizer
-from pytorch_pretrained_bert.modeling import BertPreTrainedModel, BertModel, BertConfig, BertPooler
+from transformers import BertTokenizer, BertModel
 import torch
 from dcmn_seq2seq.models.bert import Config
 from keras.preprocessing.sequence import pad_sequences
@@ -383,7 +382,7 @@ class DataGenerator():
         self.test_keys = []
         self.test_order = []
         if tokenizer is None:
-            tokenizer = BertTokenizer.from_pretrained('bert-base-cased', do_lower_case=False)
+            tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
 
         for i, (src, tar) in enumerate(zip(self.train_src_txt, self.train_tar_1_txt)):
             src = nltk.word_tokenize(src)
@@ -402,9 +401,10 @@ class DataGenerator():
             test_mask_step2 = pickle.load(f)
         test_mask = []
 
+        mask_tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
         for src, mask in zip(self.test_src_txt, test_mask_step2):
             src = nltk.word_tokenize(src)
-            mask_new = merge_mask(src, mask, tokenizer)
+            mask_new = merge_mask(src, mask, mask_tokenizer)
             test_mask.append(mask_new)
 
         k_a = []
@@ -433,20 +433,21 @@ class DataGenerator():
                                                             train_tars=self.train_tar_2_txt,
                                                             train_order=self.train_order)
 
-        # bert_model = 'bert-base-cased'
-        # bert = BertModel.from_pretrained(bert_model)
-        # bert.to(self.device)
-        # self.train_embs = get_embs(bert, tokenizer, self.device, self.train_keys, self.abbrs, max_pad_length)
-        # self.test_embs = get_embs(bert, tokenizer, self.device, self.test_keys, self.abbrs, max_pad_length)
-        # with open('./data/train_embs.pkl', 'wb') as f:
-        #     pickle.dump(self.train_embs, f)
-        # with open('./data/test_embs.pkl', 'wb') as f:
-        #     pickle.dump(self.test_embs, f)
+        bert_model = 'microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext'
 
-        with open('./data/train_embs.pkl', 'rb') as f:
-            self.train_embs = pickle.load(f)
-        with open('./data/test_embs.pkl', 'rb') as f:
-            self.test_embs = pickle.load(f)
+        bert = BertModel.from_pretrained(bert_model)
+        bert.to(self.device)
+        self.train_embs = get_embs(bert, tokenizer, self.device, self.train_keys, self.abbrs, max_pad_length)
+        self.test_embs = get_embs(bert, tokenizer, self.device, self.test_keys, self.abbrs, max_pad_length)
+        with open('./data/train_embs.pkl', 'wb') as f:
+            pickle.dump(self.train_embs, f)
+        with open('./data/test_embs.pkl', 'wb') as f:
+            pickle.dump(self.test_embs, f)
+
+        # with open('./data/train_embs.pkl', 'rb') as f:
+        #     self.train_embs = pickle.load(f)
+        # with open('./data/test_embs.pkl', 'rb') as f:
+        #     self.test_embs = pickle.load(f)
 
         if seq_tokenizer is None:
             seq_config = Config(16)

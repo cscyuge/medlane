@@ -1,7 +1,7 @@
 import os
 import time
 import torch
-from pytorch_pretrained_bert.tokenization import BertTokenizer
+from transformers import BertTokenizer
 
 
 class DCMN_Config():
@@ -12,7 +12,7 @@ class DCMN_Config():
 
         # Bert pre-trained model selected in the list: bert-base-uncased,
         # bert-large-uncased, bert-base-cased, bert-base-multilingual, bert-base-chinese.
-        self.bert_model = 'bert-base-cased'
+        self.bert_model = 'microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext'
 
         # Set this flag if you are using an uncased model.
         self.do_lower_case = False
@@ -30,7 +30,7 @@ class DCMN_Config():
         self.seq_batch_size = 1
         self.num_choices = 14
         self.learning_rate = 1e-5
-        self.num_train_epochs = 2.0
+        self.num_train_epochs = 5.0
         self.model_name = 'output_test.bin'
         self.n_gpu = 1
         self.gpu_id = 0
@@ -76,9 +76,10 @@ class DCMN_Config():
 
         self.train_batch_size = int(self.train_batch_size / self.gradient_accumulation_steps)
 
-        self.tokenizer = BertTokenizer.from_pretrained(self.bert_model, do_lower_case=self.do_lower_case)
+        self.tokenizer = BertTokenizer.from_pretrained(self.bert_model)
 
         self.t_total = 0
+        self.hidden_size = 768
 
 
 

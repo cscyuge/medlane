@@ -371,6 +371,7 @@ class Seq2seq(nn.Module):
 
         encoder_outputs, encoder_hidden = self.encoder(batch_src)
 
+
         combined_embeddings = torch.matmul(indices.unsqueeze(-1), sum_embs.unsqueeze(1)) + encoder_outputs
 
         target_variable = batch_tar

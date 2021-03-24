@@ -25,9 +25,7 @@ import os
 import random
 import numpy as np
 import torch
-from pytorch_pretrained_bert.tokenization import BertTokenizer
-from pytorch_pretrained_bert.optimization import BertAdam
-from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
+from transformers import AdamW, get_linear_schedule_with_warmup
 from dcmn_seq2seq.dcmn import BertForMultipleChoiceWithMatch
 from dcmn_seq2seq.preprocess import get_dataloader
 from dcmn_seq2seq.train import train_valid
@@ -39,6 +37,7 @@ from dcmn_seq2seq.draw import DataGenerator
 import dcmn_seq2seq.models.bert as seq_bert
 from tqdm import tqdm
 
+# os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
@@ -79,10 +78,7 @@ def build_dcmn():
                                                          dg=dg, is_training=False)
 
 
-    model = BertForMultipleChoiceWithMatch.from_pretrained(dcmn_config.bert_model,
-                                                           cache_dir=PYTORCH_PRETRAINED_BERT_CACHE / 'distributed_{}'.format(
-                                                               -1),
-                                                           num_choices=dcmn_config.num_choices)
+    model = BertForMultipleChoiceWithMatch.from_pretrained(dcmn_config.bert_model, num_choices=dcmn_config.num_choices)
     model.to(dcmn_config.device)
 
     param_optimizer = list(model.named_parameters())
@@ -97,13 +93,18 @@ def build_dcmn():
         {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay_rate': 0.0}
     ]
 
-    optimizer = BertAdam(optimizer_grouped_parameters,
-                         lr=dcmn_config.learning_rate,
-                         warmup=dcmn_config.warmup_proportion,
-                         t_total=dcmn_config.t_total)
+
+    optimizer = AdamW(params=optimizer_grouped_parameters,
+                      lr=dcmn_config.learning_rate,
+                      correct_bias=False)
+    scheduler = get_linear_schedule_with_warmup(optimizer,
+                                                num_warmup_steps=int(dcmn_config.warmup_proportion*dcmn_config.t_total),
+                                                num_training_steps=dcmn_config.t_total)  # PyTorch scheduler
+
     loss_fun = torch.nn.CrossEntropyLoss()
 
-    return model, dcmn_config, train_dataloader, eval_dataloader, optimizer, loss_fun, dg , seq_config
+    return model, dcmn_config, train_dataloader, eval_dataloader, \
+           optimizer, scheduler, loss_fun, dg , seq_config
 
 
 def build_seq2seq(config, hidden_size, max_len, no_cuda, dg):
@@ -129,22 +130,27 @@ def build_seq2seq(config, hidden_size, max_len, no_cuda, dg):
         {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}]
     # optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
 
-    optimizer = BertAdam(optimizer_grouped_parameters,
-                         lr=config.learning_rate,
-                         warmup=0.03,
-                         t_total=len(dg.train_src_txt) * config.num_epochs)
+
+    optimizer = AdamW(params=optimizer_grouped_parameters,
+                      lr=config.learning_rate,
+                      correct_bias=False)
+    scheduler = get_linear_schedule_with_warmup(optimizer,
+                                                num_warmup_steps=int(
+                                                    0.03 * len(dg.train_src_txt) * config.num_epochs),
+                                                num_training_steps=len(dg.train_src_txt) * config.num_epochs)  # PyTorch scheduler
 
     if not no_cuda:
         seq2seq.cuda()
     loss_fun = torch.nn.NLLLoss(reduce=False)
-    return seq2seq, optimizer, loss_fun
+    return seq2seq, optimizer, scheduler, loss_fun
 
 def main():
-    dcmn, dcmn_config, dcmn_train_dataloader, dcmn_eval_dataloader, dcmn_optimizer, dcmn_loss_fun, dg, seq_config = build_dcmn()
+    dcmn, dcmn_config, dcmn_train_dataloader, dcmn_eval_dataloader, \
+        dcmn_optimizer, dcmn_scheduler, dcmn_loss_fun, dg, seq_config = build_dcmn()
 
-    seq2seq, seq_optimizer, seq_loss_fun = build_seq2seq(seq_config, 768, dcmn_config.max_seq_length, dcmn_config.no_cuda, dg)
-    train_valid(dcmn, dcmn_config, dcmn_train_dataloader, dcmn_eval_dataloader, dcmn_optimizer, dcmn_loss_fun,
-                seq2seq,seq_config, seq_optimizer, seq_loss_fun, dg)
+    seq2seq, seq_optimizer, seq_scheduler, seq_loss_fun = build_seq2seq(seq_config, 768, dcmn_config.max_seq_length, dcmn_config.no_cuda, dg)
+    train_valid(dcmn, dcmn_config, dcmn_train_dataloader, dcmn_eval_dataloader, dcmn_optimizer, dcmn_scheduler, dcmn_loss_fun,
+                seq2seq,seq_config, seq_optimizer, seq_scheduler, seq_loss_fun, dg)
 
 
 

@@ -252,22 +252,22 @@ def get_dataloader(data_dir, data_file, num_choices, tokenizer, max_seq_length, 
 
     features = convert_examples_to_features(
         examples, tokenizer, max_seq_length, True, dg)
-    all_input_ids = torch.tensor(select_field(features, 'input_ids'), dtype=torch.long)
-    all_input_mask = torch.tensor(select_field(features, 'input_mask'), dtype=torch.long)
-    all_segment_ids = torch.tensor(select_field(features, 'segment_ids'), dtype=torch.long)
-    all_doc_len = torch.tensor(select_field(features, 'doc_len'), dtype=torch.long)
-    all_ques_len = torch.tensor(select_field(features, 'ques_len'), dtype=torch.long)
-    all_option_len = torch.tensor(select_field(features, 'option_len'), dtype=torch.long)
-    all_key_embs = torch.tensor([f.key_embs for f in features], dtype=torch.float)
+    all_input_ids = torch.LongTensor(select_field(features, 'input_ids'))
+    all_input_mask = torch.LongTensor(select_field(features, 'input_mask'))
+    all_segment_ids = torch.LongTensor(select_field(features, 'segment_ids'))
+    all_doc_len = torch.LongTensor(select_field(features, 'doc_len'))
+    all_ques_len = torch.LongTensor(select_field(features, 'ques_len'))
+    all_option_len = torch.LongTensor(select_field(features, 'option_len'))
+    all_key_embs = torch.Tensor([f.key_embs for f in features])
     # all_key_embs = all_key_embs.squeeze()
-    all_label = torch.tensor([f.label for f in features], dtype=torch.long)
-    all_indices = torch.tensor([f.indices for f in features], dtype=torch.float)
-    all_src_ids = torch.tensor([f.src_ids for f in features], dtype=torch.long)
-    all_src_masks = torch.tensor([f.src_masks for f in features], dtype=torch.long)
+    all_label = torch.LongTensor([f.label for f in features])
+    all_indices = torch.Tensor([f.indices for f in features])
+    all_src_ids = torch.LongTensor([f.src_ids for f in features])
+    all_src_masks = torch.LongTensor([f.src_masks for f in features])
 
     if is_training:
-        all_tar_ids = torch.tensor([f.tar_ids for f in features], dtype=torch.long)
-        all_tar_masks = torch.tensor([f.tar_masks for f in features], dtype=torch.long)
+        all_tar_ids = torch.LongTensor([f.tar_ids for f in features])
+        all_tar_masks = torch.LongTensor([f.tar_masks for f in features])
         data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label, all_doc_len, all_ques_len,
                              all_option_len, all_key_embs, all_src_ids, all_src_masks, all_indices, all_tar_ids,
                              all_tar_masks)
