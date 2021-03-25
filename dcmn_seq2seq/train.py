@@ -58,7 +58,7 @@ def set_optimizer_params_grad(named_params_optimizer, named_params_model, test_n
 
 def train(model, dataloader, device, optimizer, dcmn_scheduler, global_step, t_total,
           gradient_accumulation_steps, warmup_proportion, learning_rate, loss_fun, dcmn_config,
-          seq2seq, seq_config, seq_optimizer, seq_scheduler, seq_loss_fun, dg):
+          seq2seq, seq_config, seq_optimizer, seq_scheduler, seq_loss_fun):
     model.train()
     seq2seq.train()
 
@@ -67,13 +67,14 @@ def train(model, dataloader, device, optimizer, dcmn_scheduler, global_step, t_t
     for step, batch in enumerate(tqdm(dataloader, desc="Iteration")):
         batch = tuple(t.to(device) for t in batch)
 
-        input_ids, input_mask, segment_ids, label_ids, doc_len, ques_len, option_len, key_embs,\
-            src_ids, src_masks, indices, tar_ids, tar_masks= batch
+        input_ids, input_mask, segment_ids, label_ids, doc_len, ques_len, option_len, key_embs, \
+        src_ids, src_masks, indices, tar_ids, tar_masks = batch
         outputs = model(input_ids, segment_ids, input_mask, doc_len, ques_len, option_len)
         loss = loss_fun(outputs, label_ids)
 
         batch_scores = softmax(outputs, dim=1)
-        batch_scores = batch_scores.unsqueeze(-1).expand(dcmn_config.train_batch_size, dcmn_config.num_choices, seq_config.hidden_size)
+        batch_scores = batch_scores.unsqueeze(-1).expand(dcmn_config.train_batch_size, dcmn_config.num_choices,
+                                                         seq_config.hidden_size)
         sum_embs = torch.sum(key_embs * batch_scores, dim=1)
 
         batch_src = [src_ids, src_masks]
@@ -84,7 +85,7 @@ def train(model, dataloader, device, optimizer, dcmn_scheduler, global_step, t_t
         logit = torch.stack(decoder_outputs, 1).view(target.shape[0], -1)
 
         seq_loss = (seq_loss_fun(input=logit, target=target) * mask).sum() / mask.sum()
-        loss = loss*5+seq_loss
+        loss = loss * 5 + seq_loss
 
         if gradient_accumulation_steps > 1:
             loss = loss / gradient_accumulation_steps
@@ -114,71 +115,50 @@ def train(model, dataloader, device, optimizer, dcmn_scheduler, global_step, t_t
     return tr_loss, nb_tr_steps, global_step, lr_pre
 
 
-def valid(model, dataloader, device, loss_fun, dg):
-    model.eval()
+def valid(dcmn, dataloader, device, loss_fun, dcmn_config,
+          seq2seq, seq_config):
+    dcmn.eval()
+    seq2seq.eval()
     eval_loss, eval_accuracy = 0, 0
     nb_eval_steps, nb_eval_examples = 0, 0
+    outs = []
 
-    for input_ids, input_mask, segment_ids, label_ids, all_doc_len, all_ques_len, all_option_len in tqdm(
-            dataloader, desc="Evaluating"):
-        input_ids = input_ids.to(device)
-        input_mask = input_mask.to(device)
-        segment_ids = segment_ids.to(device)
-        all_doc_len = all_doc_len.to(device)
-        all_ques_len = all_ques_len.to(device)
-        all_option_len = all_option_len.to(device)
-        label_ids = label_ids.to(device)
+    for step, batch in enumerate(tqdm(dataloader, desc="Evaluating")):
+        batch = tuple(t.to(device) for t in batch)
+        input_ids, input_mask, segment_ids, label_ids, all_doc_len, all_ques_len, all_option_len, \
+        key_embs, src_ids, src_masks, indices = batch
 
         with torch.no_grad():
-            logits = model(input_ids, segment_ids, input_mask, all_doc_len, all_ques_len, all_option_len)
-            dg.update_test(logits.cpu().detach().numpy())
+            logits = dcmn(input_ids, segment_ids, input_mask, all_doc_len, all_ques_len, all_option_len)
             tmp_eval_loss = loss_fun(logits, label_ids)
+            batch_scores = softmax(logits, dim=1)
+            batch_scores = batch_scores.unsqueeze(-1).expand(dcmn_config.eval_batch_size, dcmn_config.num_choices,
+                                                             seq_config.hidden_size)
+            sum_embs = torch.sum(key_embs * batch_scores, dim=1)
+            batch_src = [src_ids, src_masks]
+            decoder_outputs, decoder_hidden, ret_dict = seq2seq(batch_src, indices, sum_embs, None, 0.0)
+            symbols = ret_dict['sequence']
+            symbols = torch.cat(symbols, 1).data.cpu().numpy()
+            for u in symbols:
+                outs.append(u)
 
-        logits = logits.detach().cpu().numpy()
-        label_ids = label_ids.to('cpu').numpy()
-        tmp_eval_accuracy = accuracy(logits, label_ids)
+            logits = logits.detach().cpu().numpy()
+            label_ids = label_ids.to('cpu').numpy()
+            tmp_eval_accuracy = accuracy(logits, label_ids)
 
-        eval_loss += tmp_eval_loss.mean().item()
-        eval_accuracy += tmp_eval_accuracy
+            eval_loss += tmp_eval_loss.mean().item()
+            eval_accuracy += tmp_eval_accuracy
 
-        nb_eval_examples += input_ids.size(0)
-        nb_eval_steps += 1
+            nb_eval_examples += input_ids.size(0)
+            nb_eval_steps += 1
 
     eval_loss = eval_loss / nb_eval_steps
     eval_accuracy = eval_accuracy / nb_eval_examples
 
-    return eval_loss, eval_accuracy
+    return eval_loss, eval_accuracy, outs
 
 
-def eval_set(model, dataloader, config, test_sum_embs, test_index, test_qs):
-    p = 0
-    model.eval()
-    results = []
-    references = []
-    dics = []
-    sep_count = 0
-
-    for i, (batch_src, train_tar, train_dic) in tqdm(enumerate(dataloader)):
-        replace_embs = test_sum_embs[test_qs[i]: test_qs[i+1]]
-        decoder_outputs, decoder_hidden, ret_dict = model(batch_src,test_index[i*config.batch_size: (i+1)*config.batch_size], replace_embs, None, 0.0)
-        symbols = ret_dict['sequence']
-        symbols = torch.cat(symbols, 1).data.cpu().numpy()
-        sentences, sep = decode_sentence(batch_src, symbols, config)
-        sep_count += sep
-        results += sentences
-        references += train_tar
-        dics += train_dic
-
-    # print("sep:%d" % (sep_count))
-    sentences = results
-
-    with open('./result/tmp.out.txt', 'w', encoding='utf-8') as f:
-        f.writelines([x + '\n' for x in sentences])
-    bleu, hit ,com, ascore = get_score()
-    return sentences, bleu, hit, com, ascore
-
-
-def train_valid(dcmn, dcmn_config, train_dataloader, eval_dataloader, dcmn_optimizer,dcmn_scheduler, dcmn_loss_fun,
+def train_valid(dcmn, dcmn_config, train_dataloader, eval_dataloader, dcmn_optimizer, dcmn_scheduler, dcmn_loss_fun,
                 seq2seq, seq_config, seq_optimizer, seq_scheduler, seq_loss_fun, dg):
     num_train_epochs = dcmn_config.num_train_epochs
     device = dcmn_config.device
@@ -193,45 +173,58 @@ def train_valid(dcmn, dcmn_config, train_dataloader, eval_dataloader, dcmn_optim
     global_step = 0
     best_accuracy = 0
     save_file = {}
-    max_bleu = 0
+    best_bleu = 0
 
     for epoch in range(int(num_train_epochs)):
         logger.info("**** Epoch {} *****".format(epoch))
 
-        tr_loss, nb_tr_steps, global_step, lr_pre = train(dcmn, train_dataloader, device, dcmn_optimizer,dcmn_scheduler, global_step,
+        tr_loss, nb_tr_steps, global_step, lr_pre = train(dcmn, train_dataloader, device, dcmn_optimizer,
+                                                          dcmn_scheduler, global_step,
                                                           t_total, gradient_accumulation_steps, warmup_proportion,
                                                           learning_rate, dcmn_loss_fun, dcmn_config,
-                                                          seq2seq, seq_config, seq_optimizer,seq_scheduler, seq_loss_fun, dg)
+                                                          seq2seq, seq_config, seq_optimizer, seq_scheduler,
+                                                          seq_loss_fun)
 
-        eval_loss, eval_accuracy = valid(dcmn, eval_dataloader, device, dcmn_loss_fun, dg)
-    #     if epoch >= 0:
-    #         val_results, bleu, hit, com, ascore = eval_set(seq2seq, eval_dataloader, seq_config, dg.test_sum_embs, dg.test_indexes, dg.test_qs)
-    #         # validation steps
-    #
-    #         print(val_results[0:5])
-    #         print('BLEU:%f, HIT:%f, COMMON:%f, ASCORE:%f' % (bleu, hit, com, ascore))
-    #         if bleu > max_bleu:
-    #             max_bleu = bleu
-    #             save_file['epoch'] = epoch + 1
-    #             save_file['para'] = seq2seq.state_dict()
-    #             save_file['best_bleu'] = bleu
-    #             save_file['best_hit'] = hit
-    #             save_file['best_common'] = com
-    #             torch.save(save_file, './cache/best_save.data')
-    #
+        eval_loss, eval_accuracy, outs = valid(dcmn, eval_dataloader, device, dcmn_loss_fun, dcmn_config,
+                                               seq2seq, seq_config)
+
+        import pickle
+        with open('outs.pkl','wb') as f:
+            pickle.dump(outs,f)
+
+        val_results, bleu, hit, com, ascore = dg.valid(outs)
+
         if eval_accuracy > best_accuracy:
-            logger.info("**** Saving model.... *****")
+            logger.info("**** Saving best dcmn model.... *****")
             best_accuracy = eval_accuracy
             model_to_save = dcmn.module if hasattr(dcmn, 'module') else dcmn  # Only save the model it-self
             output_model_file = os.path.join(output_dir, model_name)
             torch.save(model_to_save.state_dict(), output_model_file)
+
+        if bleu > best_bleu:
+            logger.info("**** Saving best dcmn+seq2seq model.... *****")
+            best_bleu = bleu
+            model_to_save = dcmn.module if hasattr(dcmn, 'module') else dcmn  # Only save the model it-self
+            save_file['epoch'] = epoch + 1
+            save_file['seq_para'] = seq2seq.state_dict()
+            save_file['dcmn_para'] = model_to_save.state_dict()
+            save_file['best_bleu'] = bleu
+            save_file['best_hit'] = hit
+            save_file['best_common'] = com
+            save_file['best_ascore'] = ascore
+            torch.save(save_file, './cache/best_save.data')
 
         result = {'eval_loss': eval_loss,
                   'best_accuracy': best_accuracy,
                   'eval_accuracy': eval_accuracy,
                   'global_step': global_step,
                   'lr_now': lr_pre,
-                  'loss': tr_loss / nb_tr_steps}
+                  'tr_loss': tr_loss / nb_tr_steps,
+                  'BLUE': bleu,
+                  'HIT': hit,
+                  'COMMON': com,
+                  'ASCORE': ascore}
+
         output_eval_file = os.path.join(output_dir, output_file)
         with open(output_eval_file, "a") as writer:
             logger.info("***** Eval results *****")
@@ -241,15 +234,15 @@ def train_valid(dcmn, dcmn_config, train_dataloader, eval_dataloader, dcmn_optim
                 logger.info("  %s = %s", key, str(result[key]))
                 writer.write("%s = %s\t" % (key, str(result[key])))
             writer.write("\t\n")
-    #
-    # save_file_best = torch.load('./cache/best_save.data')
-    # print('Train finished')
-    # print('Best Val BLEU:%f, HIT:%f, COMMON:%f' % (
-    #     save_file_best['best_bleu'], save_file_best['best_hit'], save_file_best['best_common']))
-    # seq2seq.load_state_dict(save_file_best['para'])
-    # test_results, bleu, hit, com, ascore = eval_set(seq2seq, seq_config, dg.test_sum_embs, dg.test_indexes, dg.test_qs)
-    # print('Test BLEU:%f, HIT:%f, COMMON:%f, ASCORE:%f' % (bleu, hit, com, ascore))
-    # with open('./result/best_save_bert.out.txt', 'w', encoding='utf-8') as f:
-    #     f.writelines([x + '\n' for x in test_results])
 
-
+    save_file_best = torch.load('./cache/best_save.data')
+    logger.info('Train finished')
+    logger.info('Best Val BLEU:%f, HIT:%f, COMMON:%f' % (
+        save_file_best['best_bleu'], save_file_best['best_hit'], save_file_best['best_common']))
+    seq2seq.load_state_dict(save_file_best['seq_para'])
+    dcmn.load_state_dict(save_file_best['dcmn_para'])
+    eval_loss, eval_accuracy, outs = valid(dcmn, eval_dataloader, device, dcmn_loss_fun, dcmn_config,
+                                           seq2seq, seq_config)
+    val_results, bleu, hit, com, ascore = dg.valid(outs)
+    with open('./result/best_save_bert.out.txt', 'w', encoding='utf-8') as f:
+        f.writelines([x + '\n' for x in val_results])

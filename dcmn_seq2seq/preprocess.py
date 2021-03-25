@@ -117,7 +117,7 @@ def _truncate_seq_pair(tokens_a, tokens_b, max_length):
 def read_swag_examples(input_file, max_pad_length, dg):
     answer_file = input_file.replace('sentences', 'labels')
     article, question, cts, key_embs, y, q_id, \
-        src_ids, src_masks, indices, tar_ids, tar_masks, tars, cudics  = parse_mc(input_file, answer_file, max_pad_length, dg)
+        src_ids, src_masks, indices, tar_ids, tar_masks = parse_mc(input_file, answer_file, max_pad_length, dg)
 
     examples = [
         SwagExample(
@@ -134,10 +134,8 @@ def read_swag_examples(input_file, max_pad_length, dg):
             indices=s9,
             tar_ids=s10,
             tar_masks=s11,
-            tars=s12,
-            cudic=s13,
-        ) for i, (s1, s2, *s3, s4, s5, s6, s7, s8, s9, s10, s11, s12, s13) in
-                enumerate(zip(article, question, *cts, key_embs, y, q_id, src_ids, src_masks, indices, tar_ids, tar_masks, tars, cudics))
+        ) for i, (s1, s2, *s3, s4, s5, s6, s7, s8, s9, s10, s11) in
+                enumerate(zip(article, question, *cts, key_embs, y, q_id, src_ids, src_masks, indices, tar_ids, tar_masks))
     ]
 
     return examples
@@ -238,9 +236,7 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
                 src_masks=example.src_masks,
                 indices=example.indices,
                 tar_ids=example.tar_ids,
-                tar_masks=example.tar_masks,
-                tars=example.tars,
-                cudic=example.cudic
+                tar_masks=example.tar_masks
             )
         )
 
@@ -276,12 +272,10 @@ def get_dataloader(data_dir, data_file, num_choices, tokenizer, max_seq_length, 
         dataloader = DataLoader(data, sampler=sampler, batch_size=batch_size)
         return dataloader, len(examples)
     else:
-        all_tars = [f.tars for f in features]
-        all_cudic = [f.cudic for f in features]
         data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label, all_doc_len, all_ques_len,
                                    all_option_len, all_key_embs, all_src_ids, all_src_masks, all_indices)
 
         sampler = SequentialSampler(data)
         dataloader = DataLoader(data, sampler=sampler, batch_size=batch_size)
-        return dataloader, len(examples), all_tars, all_cudic
+        return dataloader, len(examples)
 

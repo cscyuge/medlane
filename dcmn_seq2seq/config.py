@@ -25,12 +25,12 @@ class DCMN_Config():
         self.test_file = 'dev_sentences.pkl'
 
         self.max_seq_length = 64
-        self.train_batch_size = 1
-        self.eval_batch_size = 1
-        self.seq_batch_size = 1
+        self.train_batch_size = 3
+        self.eval_batch_size = 3
+        self.seq_batch_size = 3
         self.num_choices = 14
-        self.learning_rate = 1e-5
-        self.num_train_epochs = 5.0
+        self.learning_rate = 1e-5/6.0
+        self.num_train_epochs = 30.0
         self.model_name = 'output_test.bin'
         self.n_gpu = 1
         self.gpu_id = 0

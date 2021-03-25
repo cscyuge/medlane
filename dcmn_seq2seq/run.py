@@ -57,7 +57,9 @@ def build_dcmn():
 
     tokenizer = dcmn_config.tokenizer
     seq_config = seq_bert.Config(dcmn_config.seq_batch_size, dcmn_config.no_cuda)
-    dg = DataGenerator(max_pad_length=dcmn_config.num_choices+2,
+    dg = DataGenerator(train_batch_size=dcmn_config.train_batch_size,
+                       eval_batch_size=dcmn_config.eval_batch_size,
+                       max_pad_length=dcmn_config.num_choices+2,
                        max_seq_length = dcmn_config.max_seq_length, cuda=not dcmn_config.no_cuda,
                        tokenizer = dcmn_config.tokenizer, seq_tokenizer=seq_config.tokenizer)
 
@@ -71,7 +73,7 @@ def build_dcmn():
     t_total = num_train_steps
     dcmn_config.t_total = t_total
 
-    eval_dataloader, eval_examples_size, tars, cudics = get_dataloader(data_dir=dcmn_config.data_dir, data_file=dcmn_config.test_file,
+    eval_dataloader, eval_examples_size = get_dataloader(data_dir=dcmn_config.data_dir, data_file=dcmn_config.test_file,
                                                          num_choices=dcmn_config.num_choices,
                                                          tokenizer=tokenizer, max_seq_length=dcmn_config.max_seq_length,
                                                          batch_size=dcmn_config.eval_batch_size,

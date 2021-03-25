@@ -123,7 +123,7 @@ def parse_mc(input_file, answer_file, max_pad_length, dg):
         key_embs = dg.train_embs
 
     sentences = _sentences
-    labels= _labels
+    labels = _labels
 
     q_id = [i+1 for i in range(len(labels))]
     article = [u[0] for u in sentences]
@@ -138,19 +138,15 @@ def parse_mc(input_file, answer_file, max_pad_length, dg):
         tar_ids = [None for _ in range(len(q_id))]
         tar_masks = [None for _ in range(len(q_id))]
         indices = dg.test_indices
-        tars = dg.seq_test_tars
-        cudics = dg.cudics
     else:
         src_ids = dg.train_seq_srcs_ids
         src_masks = dg.train_seq_srcs_masks
         tar_ids = dg.train_seq_tars_ids
         tar_masks = dg.train_seq_tars_masks
         indices = dg.train_indices
-        tars = [None for _ in range(len(q_id))]
-        cudics = [None for _ in range(len(q_id))]
 
     return article, question, cts, key_embs, y, q_id, \
-            src_ids, src_masks, indices, tar_ids, tar_masks, tars, cudics
+            src_ids, src_masks, indices, tar_ids, tar_masks
 
 
 
