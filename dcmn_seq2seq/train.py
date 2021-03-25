@@ -62,7 +62,8 @@ def train(model, dataloader, device, optimizer, dcmn_scheduler, global_step, t_t
     model.train()
     seq2seq.train()
 
-    tr_loss = 0
+    tr_dcmn_loss = 0
+    tr_seq_loss = 0
     nb_tr_examples, nb_tr_steps = 0, 0
     for step, batch in enumerate(tqdm(dataloader, desc="Iteration")):
         batch = tuple(t.to(device) for t in batch)
@@ -84,12 +85,15 @@ def train(model, dataloader, device, optimizer, dcmn_scheduler, global_step, t_t
         mask = batch_tar[1][:, 1:].reshape(-1).float()
         logit = torch.stack(decoder_outputs, 1).view(target.shape[0], -1)
 
-        seq_loss = (seq_loss_fun(input=logit, target=target) * mask).sum() / mask.sum()
-        loss = loss * 5 + seq_loss
-
         if gradient_accumulation_steps > 1:
             loss = loss / gradient_accumulation_steps
-        tr_loss += loss.item()
+
+        seq_loss = (seq_loss_fun(input=logit, target=target) * mask).sum() / mask.sum()
+        tr_dcmn_loss += loss.item()
+        tr_seq_loss += seq_loss.item()
+
+        loss = loss * 5 + seq_loss
+
         nb_tr_examples += input_ids.size(0)
         nb_tr_steps += 1
 
@@ -99,20 +103,18 @@ def train(model, dataloader, device, optimizer, dcmn_scheduler, global_step, t_t
         seq_optimizer.step()
         seq_scheduler.step()
 
-        if (step + 1) % gradient_accumulation_steps == 0:
-            # modify learning rate with special warm up BERT uses
-            lr_this_step = learning_rate * warmup_linear(global_step / t_total, warmup_proportion)
-            for param_group in optimizer.param_groups:
-                param_group['lr'] = lr_this_step
-            optimizer.step()
-            optimizer.zero_grad()
-            dcmn_scheduler.step()
-            global_step += 1
+        # modify learning rate with special warm up BERT uses
+        # lr_this_step = learning_rate * warmup_linear(global_step / t_total, warmup_proportion)
+        # for param_group in optimizer.param_groups:
+        #     param_group['lr'] = lr_this_step
+        optimizer.step()
+        optimizer.zero_grad()
+        dcmn_scheduler.step()
+        global_step += 1
 
     # logger.info("lr = %f", lr_this_step)
-    lr_pre = lr_this_step
 
-    return tr_loss, nb_tr_steps, global_step, lr_pre
+    return tr_dcmn_loss, tr_seq_loss, nb_tr_steps, global_step, dcmn_scheduler.get_lr(), seq_scheduler.get_lr()
 
 
 def valid(dcmn, dataloader, device, loss_fun, dcmn_config,
@@ -178,19 +180,19 @@ def train_valid(dcmn, dcmn_config, train_dataloader, eval_dataloader, dcmn_optim
     for epoch in range(int(num_train_epochs)):
         logger.info("**** Epoch {} *****".format(epoch))
 
-        tr_loss, nb_tr_steps, global_step, lr_pre = train(dcmn, train_dataloader, device, dcmn_optimizer,
-                                                          dcmn_scheduler, global_step,
-                                                          t_total, gradient_accumulation_steps, warmup_proportion,
-                                                          learning_rate, dcmn_loss_fun, dcmn_config,
-                                                          seq2seq, seq_config, seq_optimizer, seq_scheduler,
-                                                          seq_loss_fun)
+        tr_dcmn_loss, tr_seq_loss, nb_tr_steps, global_step, lr_pre, seq_lr_pre = train(dcmn, train_dataloader, device, dcmn_optimizer,
+                                                                           dcmn_scheduler, global_step,
+                                                                           t_total, gradient_accumulation_steps, warmup_proportion,
+                                                                           learning_rate, dcmn_loss_fun, dcmn_config,
+                                                                           seq2seq, seq_config, seq_optimizer, seq_scheduler,
+                                                                           seq_loss_fun)
 
         eval_loss, eval_accuracy, outs = valid(dcmn, eval_dataloader, device, dcmn_loss_fun, dcmn_config,
                                                seq2seq, seq_config)
 
         import pickle
-        with open('outs.pkl','wb') as f:
-            pickle.dump(outs,f)
+        with open('outs{}.pkl'.format(epoch),'wb') as f:
+            pickle.dump(outs, f)
 
         val_results, bleu, hit, com, ascore = dg.valid(outs)
 
@@ -218,8 +220,10 @@ def train_valid(dcmn, dcmn_config, train_dataloader, eval_dataloader, dcmn_optim
                   'best_accuracy': best_accuracy,
                   'eval_accuracy': eval_accuracy,
                   'global_step': global_step,
-                  'lr_now': lr_pre,
-                  'tr_loss': tr_loss / nb_tr_steps,
+                  'dcmn_lr_now': lr_pre,
+                  'seq_lr_now':seq_lr_pre,
+                  'tr_dcmn_loss': tr_dcmn_loss / nb_tr_steps,
+                  'tr_seq_loss' : tr_seq_loss / nb_tr_steps,
                   'BLUE': bleu,
                   'HIT': hit,
                   'COMMON': com,

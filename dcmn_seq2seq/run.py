@@ -140,7 +140,7 @@ def build_seq2seq(config, hidden_size, max_len, no_cuda, dg):
                                                 num_warmup_steps=int(
                                                     0.03 * len(dg.train_src_txt) * config.num_epochs),
                                                 num_training_steps=len(dg.train_src_txt) * config.num_epochs)  # PyTorch scheduler
-
+    
     if not no_cuda:
         seq2seq.cuda()
     loss_fun = torch.nn.NLLLoss(reduce=False)

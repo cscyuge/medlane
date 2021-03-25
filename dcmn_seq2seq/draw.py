@@ -454,21 +454,21 @@ class DataGenerator():
                                                             train_tars=self.train_tar_2_txt,
                                                             train_order=self.train_order)
 
-        bert_model = 'microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext'
+        # bert_model = 'microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext'
+        #
+        # bert = BertModel.from_pretrained(bert_model)
+        # bert.to(self.device)
+        # self.train_embs = get_embs(bert, tokenizer, self.device, self.train_keys, self.abbrs, max_pad_length)
+        # self.test_embs = get_embs(bert, tokenizer, self.device, self.test_keys, self.abbrs, max_pad_length)
+        # with open('./data/train_embs.pkl', 'wb') as f:
+        #     pickle.dump(self.train_embs, f)
+        # with open('./data/test_embs.pkl', 'wb') as f:
+        #     pickle.dump(self.test_embs, f)
 
-        bert = BertModel.from_pretrained(bert_model)
-        bert.to(self.device)
-        self.train_embs = get_embs(bert, tokenizer, self.device, self.train_keys, self.abbrs, max_pad_length)
-        self.test_embs = get_embs(bert, tokenizer, self.device, self.test_keys, self.abbrs, max_pad_length)
-        with open('./data/train_embs.pkl', 'wb') as f:
-            pickle.dump(self.train_embs, f)
-        with open('./data/test_embs.pkl', 'wb') as f:
-            pickle.dump(self.test_embs, f)
-
-        # with open('./data/train_embs.pkl', 'rb') as f:
-        #     self.train_embs = pickle.load(f)
-        # with open('./data/test_embs.pkl', 'rb') as f:
-        #     self.test_embs = pickle.load(f)
+        with open('./data/train_embs.pkl', 'rb') as f:
+            self.train_embs = pickle.load(f)
+        with open('./data/test_embs.pkl', 'rb') as f:
+            self.test_embs = pickle.load(f)
 
         if seq_tokenizer is None:
             seq_config = Config(16)
