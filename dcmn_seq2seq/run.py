@@ -140,18 +140,18 @@ def build_seq2seq(config, hidden_size, max_len, no_cuda, dg):
                                                 num_warmup_steps=int(
                                                     0.03 * len(dg.train_src_txt) * config.num_epochs),
                                                 num_training_steps=len(dg.train_src_txt) * config.num_epochs)  # PyTorch scheduler
-    
+
     if not no_cuda:
         seq2seq.cuda()
     loss_fun = torch.nn.NLLLoss(reduce=False)
     return seq2seq, optimizer, scheduler, loss_fun
 
 def main():
-    dcmn, dcmn_config, dcmn_train_dataloader, dcmn_eval_dataloader, \
+    dcmn, dcmn_config, train_dataloader, eval_dataloader, \
         dcmn_optimizer, dcmn_scheduler, dcmn_loss_fun, dg, seq_config = build_dcmn()
 
     seq2seq, seq_optimizer, seq_scheduler, seq_loss_fun = build_seq2seq(seq_config, 768, dcmn_config.max_seq_length, dcmn_config.no_cuda, dg)
-    train_valid(dcmn, dcmn_config, dcmn_train_dataloader, dcmn_eval_dataloader, dcmn_optimizer, dcmn_scheduler, dcmn_loss_fun,
+    train_valid(dcmn, dcmn_config, train_dataloader, eval_dataloader, dcmn_optimizer, dcmn_scheduler, dcmn_loss_fun,
                 seq2seq,seq_config, seq_optimizer, seq_scheduler, seq_loss_fun, dg)
 
 

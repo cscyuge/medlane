@@ -56,8 +56,8 @@ def set_optimizer_params_grad(named_params_optimizer, named_params_model, test_n
     return is_nan
 
 
-def train(model, dataloader, device, optimizer, dcmn_scheduler, global_step, t_total,
-          gradient_accumulation_steps, warmup_proportion, learning_rate, loss_fun, dcmn_config,
+def train(model, dataloader, device, optimizer, dcmn_scheduler, global_step,
+          gradient_accumulation_steps, loss_fun, dcmn_config,
           seq2seq, seq_config, seq_optimizer, seq_scheduler, seq_loss_fun):
     model.train()
     seq2seq.train()
@@ -70,6 +70,7 @@ def train(model, dataloader, device, optimizer, dcmn_scheduler, global_step, t_t
 
         input_ids, input_mask, segment_ids, label_ids, doc_len, ques_len, option_len, key_embs, \
         src_ids, src_masks, indices, tar_ids, tar_masks = batch
+
         outputs = model(input_ids, segment_ids, input_mask, doc_len, ques_len, option_len)
         loss = loss_fun(outputs, label_ids)
 
@@ -78,43 +79,41 @@ def train(model, dataloader, device, optimizer, dcmn_scheduler, global_step, t_t
                                                          seq_config.hidden_size)
         sum_embs = torch.sum(key_embs * batch_scores, dim=1)
 
-        batch_src = [src_ids, src_masks]
-        batch_tar = [tar_ids, tar_masks]
-        decoder_outputs, decoder_hidden, ret_dict = seq2seq(batch_src, indices, sum_embs, batch_tar[0], 0.5)
-        target = batch_tar[0][:, 1:].reshape(-1)
-        mask = batch_tar[1][:, 1:].reshape(-1).float()
+        decoder_outputs, decoder_hidden, ret_dict = seq2seq([src_ids,src_masks], indices, sum_embs, tar_ids, 0.5)
+        target = tar_ids[:, 1:].reshape(-1)
+        mask = tar_masks[:, 1:].reshape(-1).float()
         logit = torch.stack(decoder_outputs, 1).view(target.shape[0], -1)
-
-        if gradient_accumulation_steps > 1:
-            loss = loss / gradient_accumulation_steps
 
         seq_loss = (seq_loss_fun(input=logit, target=target) * mask).sum() / mask.sum()
         tr_dcmn_loss += loss.item()
         tr_seq_loss += seq_loss.item()
 
-        loss = loss * 5 + seq_loss
+        if step % 50 == 0:
+            print('train dcmn loss:{:.6f}, train seq2seq loss:{:.6f}'.format(loss.item(), seq_loss.item()))
 
         nb_tr_examples += input_ids.size(0)
         nb_tr_steps += 1
 
-        loss.backward()
+        total_loss = seq_loss + loss
+        total_loss.backward()
 
-        seq_optimizer.zero_grad()
         seq_optimizer.step()
         seq_scheduler.step()
+        seq_optimizer.zero_grad()
 
         # modify learning rate with special warm up BERT uses
         # lr_this_step = learning_rate * warmup_linear(global_step / t_total, warmup_proportion)
         # for param_group in optimizer.param_groups:
         #     param_group['lr'] = lr_this_step
         optimizer.step()
-        optimizer.zero_grad()
         dcmn_scheduler.step()
+        optimizer.zero_grad()
         global_step += 1
+
 
     # logger.info("lr = %f", lr_this_step)
 
-    return tr_dcmn_loss, tr_seq_loss, nb_tr_steps, global_step, dcmn_scheduler.get_lr(), seq_scheduler.get_lr()
+    return tr_dcmn_loss, tr_seq_loss, nb_tr_steps, global_step, dcmn_scheduler.get_lr()[0], seq_scheduler.get_lr()[0]
 
 
 def valid(dcmn, dataloader, device, loss_fun, dcmn_config,
@@ -160,7 +159,8 @@ def valid(dcmn, dataloader, device, loss_fun, dcmn_config,
     return eval_loss, eval_accuracy, outs
 
 
-def train_valid(dcmn, dcmn_config, train_dataloader, eval_dataloader, dcmn_optimizer, dcmn_scheduler, dcmn_loss_fun,
+def train_valid(dcmn, dcmn_config, train_dataloader, eval_dataloader,
+                dcmn_optimizer, dcmn_scheduler, dcmn_loss_fun,
                 seq2seq, seq_config, seq_optimizer, seq_scheduler, seq_loss_fun, dg):
     num_train_epochs = dcmn_config.num_train_epochs
     device = dcmn_config.device
@@ -182,8 +182,7 @@ def train_valid(dcmn, dcmn_config, train_dataloader, eval_dataloader, dcmn_optim
 
         tr_dcmn_loss, tr_seq_loss, nb_tr_steps, global_step, lr_pre, seq_lr_pre = train(dcmn, train_dataloader, device, dcmn_optimizer,
                                                                            dcmn_scheduler, global_step,
-                                                                           t_total, gradient_accumulation_steps, warmup_proportion,
-                                                                           learning_rate, dcmn_loss_fun, dcmn_config,
+                                                                           gradient_accumulation_steps, dcmn_loss_fun, dcmn_config,
                                                                            seq2seq, seq_config, seq_optimizer, seq_scheduler,
                                                                            seq_loss_fun)
 
@@ -191,10 +190,10 @@ def train_valid(dcmn, dcmn_config, train_dataloader, eval_dataloader, dcmn_optim
                                                seq2seq, seq_config)
 
         import pickle
-        with open('outs{}.pkl'.format(epoch),'wb') as f:
+        with open('./outs/outs{}.pkl'.format(epoch), 'wb') as f:
             pickle.dump(outs, f)
-
         val_results, bleu, hit, com, ascore = dg.valid(outs)
+
 
         if eval_accuracy > best_accuracy:
             logger.info("**** Saving best dcmn model.... *****")
@@ -215,6 +214,8 @@ def train_valid(dcmn, dcmn_config, train_dataloader, eval_dataloader, dcmn_optim
             save_file['best_common'] = com
             save_file['best_ascore'] = ascore
             torch.save(save_file, './cache/best_save.data')
+            with open('./result/best_save_bert.out.txt', 'w', encoding='utf-8') as f:
+                f.writelines([x + '\n' for x in val_results])
 
         result = {'eval_loss': eval_loss,
                   'best_accuracy': best_accuracy,
@@ -239,14 +240,3 @@ def train_valid(dcmn, dcmn_config, train_dataloader, eval_dataloader, dcmn_optim
                 writer.write("%s = %s\t" % (key, str(result[key])))
             writer.write("\t\n")
 
-    save_file_best = torch.load('./cache/best_save.data')
-    logger.info('Train finished')
-    logger.info('Best Val BLEU:%f, HIT:%f, COMMON:%f' % (
-        save_file_best['best_bleu'], save_file_best['best_hit'], save_file_best['best_common']))
-    seq2seq.load_state_dict(save_file_best['seq_para'])
-    dcmn.load_state_dict(save_file_best['dcmn_para'])
-    eval_loss, eval_accuracy, outs = valid(dcmn, eval_dataloader, device, dcmn_loss_fun, dcmn_config,
-                                           seq2seq, seq_config)
-    val_results, bleu, hit, com, ascore = dg.valid(outs)
-    with open('./result/best_save_bert.out.txt', 'w', encoding='utf-8') as f:
-        f.writelines([x + '\n' for x in val_results])

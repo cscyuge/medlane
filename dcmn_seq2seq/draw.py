@@ -499,6 +499,10 @@ class DataGenerator():
             out = self.seq_tokenizer.convert_ids_to_tokens(out)
             temp = ''
             for word in out:
+                if word == '[CLS]':
+                    continue
+                if word == '[PAD]':
+                    break
                 if word[0] == '#':
                     word = word[2:]
                     temp += word
@@ -579,9 +583,9 @@ class DataGenerator():
 if __name__ == '__main__':
     # t = time.time()
     dg = DataGenerator(3, 3)
-    with open('outs.pkl', 'rb') as f:
-        outs = pickle.load(f)
-        dg.valid(outs)
+    # with open('outs.pkl', 'rb') as f:
+    #     outs = pickle.load(f)
+    #     dg.valid(outs)
 
     # print(len(dg.train_dcmn_srcs))
     # print('done, time cost:{}'.format(time.time()-t))
