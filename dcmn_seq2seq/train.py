@@ -88,7 +88,7 @@ def train(model, dataloader, device, optimizer, dcmn_scheduler, global_step,
         tr_dcmn_loss += loss.item()
         tr_seq_loss += seq_loss.item()
 
-        if step % 50 == 0:
+        if step % 500 == 0:
             print('train dcmn loss:{:.6f}, train seq2seq loss:{:.6f}'.format(loss.item(), seq_loss.item()))
 
         nb_tr_examples += input_ids.size(0)
@@ -113,7 +113,7 @@ def train(model, dataloader, device, optimizer, dcmn_scheduler, global_step,
 
     # logger.info("lr = %f", lr_this_step)
 
-    return tr_dcmn_loss, tr_seq_loss, nb_tr_steps, global_step, dcmn_scheduler.get_lr()[0], seq_scheduler.get_lr()[0]
+    return tr_dcmn_loss, tr_seq_loss, nb_tr_steps, global_step, dcmn_scheduler.get_last_lr(), seq_scheduler.get_last_lr()
 
 
 def valid(dcmn, dataloader, device, loss_fun, dcmn_config,

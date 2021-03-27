@@ -133,6 +133,7 @@ def get_dcmn_data_from_gt(src_words, tar_words, abbrs, max_pad_length, max_dcmn_
     sentences = []
     labels = []
     srcs = []
+    tars = []
     keys = []
     key_ans = {}
 
@@ -187,16 +188,20 @@ def get_dcmn_data_from_gt(src_words, tar_words, abbrs, max_pad_length, max_dcmn_
                         labels.append(label)
                         keys.append(pre)
                         key_ans[pre] = label
-                        srcs.append('[CLS] ' + ' '.join(src_words[:i]) + ' [MASK] ' + ' '.join(src_words[p:]))
+                        srcs.append('[CLS] ' + ' '.join(src_words[:i]) + ' [SEP] [MASK] [SEP] ' + ' '.join(src_words[p:]))
+                        tars.append(
+                            '[CLS] ' + ' '.join(src_words[:i]) + ' [SEP] ' + temp[label + 2] + ' [SEP] ' + ' '.join(
+                                src_words[i + 1:]))
 
             i = p
             j = q
-    return sentences, labels, srcs, keys, key_ans
+    return sentences, labels, srcs, keys, key_ans, tars
 
 
 def get_dcmn_data_from_step1(src_words, masks, k_a, abbrs, max_pad_length, max_dcmn_seq_length, tokenizer):
     sentences = []
     srcs = []
+    tars = []
     keys = []
     labels = []
     src = ['[CLS]']
@@ -241,9 +246,10 @@ def get_dcmn_data_from_step1(src_words, masks, k_a, abbrs, max_pad_length, max_d
             keys.append(key)
             labels.append(label)
             srcs.append('[CLS] ' + ' '.join(src_words[:i]) + ' [SEP] [MASK] [SEP] ' + ' '.join(src_words[i + 1:]))
+            tars.append('[CLS] ' + ' '.join(src_words[:i]) + ' [SEP] ' + temp[label+2] + ' [SEP] ' + ' '.join(src_words[i + 1:]))
             src.extend(['[SEP]', key, '[SEP]'])
 
-    return sentences, labels, srcs, keys, ' '.join(src)
+    return sentences, labels, srcs, keys, ' '.join(src), tars
 
 
 def add_sep(train_srcs, train_tars, train_order):
@@ -388,6 +394,7 @@ class DataGenerator():
 
         # generate data
         self.train_seq_srcs = []
+        self.train_seq_tars = []
         self.train_dcmn_srcs = []
         self.train_dcmn_labels = []
         self.train_keys = []
@@ -406,7 +413,7 @@ class DataGenerator():
         for i, (src, tar) in enumerate(zip(self.train_src_txt, self.train_tar_1_txt)):
             src = nltk.word_tokenize(src)
             tar = nltk.word_tokenize(tar)
-            sentences, labels, srcs, keys, key_ans = get_dcmn_data_from_gt(src, tar, self.abbrs,
+            sentences, labels, srcs, keys, key_ans, tars = get_dcmn_data_from_gt(src, tar, self.abbrs,
                                                                            max_pad_length=max_pad_length,
                                                                            max_dcmn_seq_length=max_seq_length,
                                                                            tokenizer=tokenizer)
@@ -415,6 +422,7 @@ class DataGenerator():
             self.train_seq_srcs.extend(srcs)
             self.train_keys.extend(keys)
             self.train_order.append(len(sentences))
+            self.train_seq_tars.extend(tars)
 
         with open('./data/test_mask_step2_2030.pkl', 'rb') as f:
             test_mask_step2 = pickle.load(f)
@@ -431,7 +439,7 @@ class DataGenerator():
         for i, (src, tar) in enumerate(zip(self.test_src_txt, self.test_tar_1_txt)):
             src = nltk.word_tokenize(src)
             tar = nltk.word_tokenize(tar)
-            sentences, labels, src, keys, key_ans = get_dcmn_data_from_gt(src, tar, self.abbrs,
+            sentences, labels, src, keys, key_ans, tars = get_dcmn_data_from_gt(src, tar, self.abbrs,
                                                                           max_pad_length=max_pad_length,
                                                                           max_dcmn_seq_length=max_seq_length,
                                                                           tokenizer=tokenizer)
@@ -439,7 +447,7 @@ class DataGenerator():
 
         for i, (sts, masks, k_a) in enumerate(zip(self.test_src_txt, self.test_mask, k_as)):
             sts = nltk.word_tokenize(sts)
-            sentences, labels, srcs, keys, src = get_dcmn_data_from_step1(sts, masks, k_a, self.abbrs,
+            sentences, labels, srcs, keys, src, tars = get_dcmn_data_from_step1(sts, masks, k_a, self.abbrs,
                                                                      max_pad_length=max_pad_length,
                                                                      max_dcmn_seq_length=max_seq_length,
                                                                      tokenizer=tokenizer)
@@ -450,9 +458,9 @@ class DataGenerator():
             self.test_seq_srcs.extend(srcs)
             self.test_seq_src_sep.append(src)
 
-        self.train_seq_srcs, self.train_tar_2_txt = add_sep(train_srcs=self.train_seq_srcs,
-                                                            train_tars=self.train_tar_2_txt,
-                                                            train_order=self.train_order)
+        # self.train_seq_srcs, self.train_tar_2_txt = add_sep(train_srcs=self.train_seq_srcs,
+        #                                                     train_tars=self.train_tar_2_txt,
+        #                                                     train_order=self.train_order)
 
         # bert_model = 'microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext'
         #
@@ -477,7 +485,7 @@ class DataGenerator():
 
         self.train_seq_srcs_ids, self.train_seq_srcs_masks = seq_tokenize(self.train_seq_srcs, seq_tokenizer,
                                                                           max_seq_length)
-        self.train_seq_tars_ids, self.train_seq_tars_masks = seq_tokenize(self.train_tar_2_txt, seq_tokenizer,
+        self.train_seq_tars_ids, self.train_seq_tars_masks = seq_tokenize(self.train_seq_tars, seq_tokenizer,
                                                                           max_seq_length)
         self.test_seq_srcs_ids, self.test_seq_srcs_masks = seq_tokenize(self.test_seq_srcs, seq_tokenizer,
                                                                         max_seq_length)
@@ -542,7 +550,7 @@ class DataGenerator():
         for i, (src, tar) in enumerate(zip(self.train_src_txt, self.train_tar_1_txt)):
             src = nltk.word_tokenize(src)
             tar = nltk.word_tokenize(tar)
-            sentences, labels, srcs, keys, key_ans = get_dcmn_data_from_gt(src, tar, self.abbrs,
+            sentences, labels, srcs, keys, key_ans, tars = get_dcmn_data_from_gt(src, tar, self.abbrs,
                                                                            max_pad_length=self.max_pad_length,
                                                                            max_dcmn_seq_length=self.max_seq_length,
                                                                            tokenizer=self.tokenizer)
@@ -559,7 +567,7 @@ class DataGenerator():
         for i, (src, tar) in enumerate(zip(self.test_src_txt, self.test_tar_1_txt)):
             src = nltk.word_tokenize(src)
             tar = nltk.word_tokenize(tar)
-            sentences, labels, src, keys, key_ans = get_dcmn_data_from_gt(src, tar, self.abbrs,
+            sentences, labels, src, keys, key_ans, tars = get_dcmn_data_from_gt(src, tar, self.abbrs,
                                                                           max_pad_length=self.max_pad_length,
                                                                           max_dcmn_seq_length=self.max_seq_length,
                                                                           tokenizer=self.tokenizer)
@@ -567,7 +575,7 @@ class DataGenerator():
 
         for i, (sts, masks, k_a) in enumerate(zip(self.test_src_txt, self.test_mask, k_as)):
             sts = nltk.word_tokenize(sts)
-            sentences, labels, srcs, keys, src = get_dcmn_data_from_step1(sts, masks, k_a, self.abbrs,
+            sentences, labels, srcs, keys, src, tars = get_dcmn_data_from_step1(sts, masks, k_a, self.abbrs,
                                                                      max_pad_length=self.max_pad_length,
                                                                      max_dcmn_seq_length=self.max_seq_length,
                                                                      tokenizer=self.tokenizer)
