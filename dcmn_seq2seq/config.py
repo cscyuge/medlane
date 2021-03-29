@@ -14,9 +14,6 @@ class DCMN_Config():
         # bert-large-uncased, bert-base-cased, bert-base-multilingual, bert-base-chinese.
         self.bert_model = 'microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext'
 
-        # Set this flag if you are using an uncased model.
-        self.do_lower_case = False
-
         # The output directory where the model checkpoints will be written.
         self.output_dir = 'mctest_output'
         self.output_file = 'output_test.txt'

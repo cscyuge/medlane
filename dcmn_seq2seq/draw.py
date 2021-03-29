@@ -125,6 +125,50 @@ def get_test_src_tar_txt(test_txt_path):
     return src, tar_1, tar_2
 
 
+def get_one_sample(src_words, key, key_tar, abbrs, max_pad_length, max_dcmn_seq_length, key_index, tokenizer):
+    if key in abbrs.keys():
+        pass
+    elif key.upper() in abbrs.keys():
+        key = key.upper()
+    elif key.lower() in abbrs.keys():
+        key = key.lower()
+
+    if key in abbrs.keys() and key_tar is not None:
+        temp = [' '.join(src_words), 'what is {} ?'.format(key)]
+        label = -1
+        skip_cnt = 0
+        for index, u in enumerate(abbrs[key]):
+            if index - skip_cnt >= max_pad_length - 2:
+                break
+            if len(u.split(' ')) > 10:
+                skip_cnt += 1
+                continue
+            h = u
+            temp.append(h)
+            if is_similar(u, key_tar):
+                label = index - skip_cnt
+        while len(temp) < max_pad_length:
+            temp.append('[PAD]')
+        if len(tokenizer.tokenize(temp[0])) + len(tokenizer.tokenize(temp[1])) + len(
+                tokenizer.tokenize(temp[2])) >= max_dcmn_seq_length \
+                or label < 0 or label >= max_pad_length - 2:
+            return None, None, None, None
+        else:
+            src = '[CLS] ' + ' '.join(src_words[:key_index]) + ' [SEP] [MASK] [SEP] ' + ' '.join(
+                src_words[key_index + 1:])
+            tar = '[CLS] ' + ' '.join(src_words[:key_index]) + ' [SEP] ' + temp[label + 2] + ' [SEP] ' + ' '.join(
+                src_words[key_index + 1:])
+            return temp, label, src, tar
+    else:
+        temp = [' '.join(src_words), 'what is {} ?'.format(key), key]
+        while len(temp) < max_pad_length:
+            temp.append('[PAD]')
+        src = '[CLS] ' + ' '.join(src_words[:key_index]) + ' [SEP] [MASK] [SEP] ' + ' '.join(src_words[key_index + 1:])
+        tar = '[CLS] ' + ' '.join(src_words[:key_index]) + ' [SEP] ' + temp[2] + ' [SEP] ' + ' '.join(
+            src_words[key_index + 1:])
+        return temp, 0, src, tar
+
+
 def get_dcmn_data_from_gt(src_words, tar_words, abbrs, max_pad_length, max_dcmn_seq_length, tokenizer):
     if tar_words[-1] != '.':
         tar_words.append('.')
@@ -134,7 +178,6 @@ def get_dcmn_data_from_gt(src_words, tar_words, abbrs, max_pad_length, max_dcmn_
     labels = []
     srcs = []
     tars = []
-    keys = []
     key_ans = {}
 
     while i < len(src_words):
@@ -153,56 +196,25 @@ def get_dcmn_data_from_gt(src_words, tar_words, abbrs, max_pad_length, max_dcmn_
                     q = j + 1
                 else:
                     break
-            if p - i == 1:
-                pre = src_words[i]
-                aft = " ".join(tar_words[j:q])
-                if pre in abbrs.keys():
-                    pass
-                elif pre.upper() in abbrs.keys():
-                    pre = pre.upper()
-                elif pre.lower() in abbrs.keys():
-                    pre = pre.lower()
-
-                if pre in abbrs.keys():
-                    temp = [' '.join(src_words), 'what is {} ?'.format(pre)]
-                    label = -1
-                    skip_cnt = 0
-                    for index, u in enumerate(abbrs[pre]):
-                        if index - skip_cnt >= max_pad_length - 2:
-                            break
-                        if len(u.split(' ')) > 10:
-                            skip_cnt += 1
-                            continue
-                        h = u
-                        temp.append(h)
-                        if is_similar(u, aft):
-                            label = index
-                    while len(temp) < max_pad_length:
-                        temp.append('[PAD]')
-                    if len(tokenizer.tokenize(temp[0])) + len(tokenizer.tokenize(temp[1])) + len(
-                            tokenizer.tokenize(temp[2])) >= max_dcmn_seq_length \
-                            or label < 0 or label >= max_pad_length - 2:
-                        pass
-                    else:
-                        sentences.append(temp)
-                        labels.append(label)
-                        keys.append(pre)
-                        key_ans[pre] = label
-                        srcs.append('[CLS] ' + ' '.join(src_words[:i]) + ' [SEP] [MASK] [SEP] ' + ' '.join(src_words[p:]))
-                        tars.append(
-                            '[CLS] ' + ' '.join(src_words[:i]) + ' [SEP] ' + temp[label + 2] + ' [SEP] ' + ' '.join(
-                                src_words[i + 1:]))
-
+            aft = " ".join(tar_words[j:q])
+            for k, word in enumerate(src_words[i:p]):
+                temp, label, src, tar = get_one_sample(src_words, word, aft, abbrs, max_pad_length, max_dcmn_seq_length,
+                                                       i + k, tokenizer)
+                if temp is not None:
+                    sentences.append(temp)
+                    labels.append(label)
+                    key_ans[word] = temp[label + 2]
+                    srcs.append(src)
+                    tars.append(tar)
             i = p
             j = q
-    return sentences, labels, srcs, keys, key_ans, tars
+    return sentences, labels, srcs, key_ans, tars
 
 
 def get_dcmn_data_from_step1(src_words, masks, k_a, abbrs, max_pad_length, max_dcmn_seq_length, tokenizer):
     sentences = []
     srcs = []
     tars = []
-    keys = []
     labels = []
     src = ['[CLS]']
     for i, mask in enumerate(masks):
@@ -217,102 +229,27 @@ def get_dcmn_data_from_step1(src_words, masks, k_a, abbrs, max_pad_length, max_d
         elif key.lower() in abbrs.keys():
             key = key.lower()
 
-        if (key in abbrs.keys() and key in k_a.keys() and 0 <= k_a[key] < max_pad_length - 2) or \
-                (key in abbrs.keys() and key not in k_a.keys() and len(abbrs[key]) == 1):
-            temp = [' '.join(src_words), 'what is {} ?'.format(key)]
-            if key in k_a.keys():
-                label = k_a[key]
-            else:
-                label = 0
-
-            skip_cnt = 0
-            for index, u in enumerate(abbrs[key]):
-                if index - skip_cnt >= max_pad_length - 2:
-                    break
-                if len(u.split(' ')) > 10:
-                    skip_cnt += 1
-                    continue
-                h = u
-                temp.append(h)
-
-            while len(temp) < max_pad_length:
-                temp.append('[PAD]')
-
-            if len(tokenizer.tokenize(temp[0])) + len(tokenizer.tokenize(temp[1])) + len(
-                    tokenizer.tokenize(temp[2])) >= max_dcmn_seq_length:
-                src.append(src_words[i])
-                continue
+        if key in k_a.keys():
+            aft = k_a[key]
+        elif key in abbrs.keys() and len(abbrs[key]) == 1:
+            aft = abbrs[key][0]
+        else:
+            aft = None
+        temp, label, _src, tar = get_one_sample(src_words, key, aft, abbrs, max_pad_length, max_dcmn_seq_length, i,
+                                               tokenizer)
+        if temp is not None:
             sentences.append(temp)
-            keys.append(key)
             labels.append(label)
-            srcs.append('[CLS] ' + ' '.join(src_words[:i]) + ' [SEP] [MASK] [SEP] ' + ' '.join(src_words[i + 1:]))
-            tars.append('[CLS] ' + ' '.join(src_words[:i]) + ' [SEP] ' + temp[label+2] + ' [SEP] ' + ' '.join(src_words[i + 1:]))
+            srcs.append(_src)
+            tars.append(tar)
             src.extend(['[SEP]', key, '[SEP]'])
         else:
             src.append(src_words[i])
 
-    return sentences, labels, srcs, keys, ' '.join(src), tars
+    return sentences, labels, srcs, ' '.join(src), tars
 
 
-def add_sep(train_srcs, train_tars, train_order):
-    train_src_new = []
-    train_tar_new = []
-    i, j = 0, 0
-    for src in train_srcs:
-        src = src.split(' ')
-        src_new = src
-        if src_new[-1] != '.':
-            src_new.append('.')
-        while j >= train_order[i]:
-            i += 1
-            j = 0
-        j += 1
-        tar = train_tars[i]
-        tar = tar.split(' ')
-        tar_new = []
-        p = 0
-
-        for k, u in enumerate(src):
-            if u == '[MASK]':
-                while p < len(tar) and tar[p] != src[k - 1]:
-                    tar_new.append(tar[p])
-                    p += 1
-                if p < len(tar):
-                    tar_new.append(tar[p])
-                    p += 1
-                tar_new.append('[SEP]')
-                while p < len(tar) and tar[p] != src[k + 1]:
-                    tar_new.append(tar[p])
-                    p += 1
-                tar_new.append('[SEP]')
-        while p < len(tar):
-            tar_new.append(tar[p])
-            p += 1
-        train_src_new.append(src_new)
-        train_tar_new.append(tar_new)
-
-    for i, u in enumerate(train_src_new):
-        tmp = []
-        for j, v in enumerate(u):
-            if v == '[MASK]':
-                tmp.append('[SEP]')
-                tmp.append('[MASK]')
-                tmp.append('[SEP]')
-            else:
-                tmp.append(v)
-        train_src_new[i] = tmp
-    train_input = []
-    for u in train_src_new:
-        train_input.append(' '.join(u))
-    train_output = []
-    for u in train_tar_new:
-        train_output.append(' '.join(u))
-
-    return train_input, train_output
-
-
-def get_embs(bert, tokenizer, device, dcmn_keys, abbrs, max_pad_length):
-
+def get_embs(bert, tokenizer, device, dcmn_srcs, max_pad_length):
     pad_tokens = ['[PAD]']
     ids = tokenizer.convert_tokens_to_ids(pad_tokens)
     inputs = [ids]
@@ -325,16 +262,13 @@ def get_embs(bert, tokenizer, device, dcmn_keys, abbrs, max_pad_length):
         pad_embs = np.sum(pad_embs, axis=1) / len(ids)
         pad_embs = pad_embs[0]
     dcmn_embs = []
-    for key in tqdm(dcmn_keys):
+    for sts in tqdm(dcmn_srcs):
         emb_values = []
-        skip_cnt = 0
-        for i, value in enumerate(abbrs[key]):
-            if len(value.split(' ')) > 10:
-                skip_cnt += 1
+        for i, value in enumerate(sts[2:]):
+            if value == '[PAD]':
+                emb_values.append(pad_embs)
                 continue
-            if i - skip_cnt >= max_pad_length - 2:
-                break
-            tokens = tokenizer.tokenize(key)
+            tokens = tokenizer.tokenize(value)
             ids = tokenizer.convert_tokens_to_ids(tokens)
             inputs = [ids]
             inputs = torch.tensor(inputs)
@@ -346,8 +280,7 @@ def get_embs(bert, tokenizer, device, dcmn_keys, abbrs, max_pad_length):
                 embs = np.sum(embs, axis=1) / len(ids)
                 embs = embs[0]
                 emb_values.append(embs)
-        while len(emb_values) < max_pad_length - 2:
-            emb_values.append(pad_embs)
+        assert len(emb_values) != max_pad_length
         dcmn_embs.append(emb_values)
     return dcmn_embs
 
@@ -369,13 +302,13 @@ def get_index(srcs):
     tar_indexs = []
     for i, src in enumerate(srcs):
         for j, u in enumerate(src):
-            if u == 4:    # id of '[MASK]'
+            if u == 4:  # id of '[MASK]'
                 tar_indexs.append([0.0] * j + [1.0] + [0.0] * (len(src) - j - 1))
                 break
     return tar_indexs
 
 
-class DataGenerator():
+class DataGenerator:
     def __init__(self, train_batch_size, eval_batch_size, max_pad_length=16, max_seq_length=64,
                  cuda=True, emb_size=768, tokenizer=None, seq_tokenizer=None):
 
@@ -406,30 +339,29 @@ class DataGenerator():
         self.train_seq_tars = []
         self.train_dcmn_srcs = []
         self.train_dcmn_labels = []
-        self.train_keys = []
         self.train_order = []
         self.test_seq_srcs = []
         self.test_dcmn_srcs = []
         self.test_dcmn_labels = []
         self.test_seq_src_sep = []
-        self.test_keys = []
         self.test_order = []
         if tokenizer is None:
             tokenizer = BertTokenizer.from_pretrained('microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext')
         self.tokenizer = tokenizer
 
         self._pad_train_data()
-        for i, (src, tar) in enumerate(zip(self.train_src_txt, self.train_tar_1_txt)):
+
+        for i, (src, tar) in enumerate(zip(self.train_src_txt[len(self.train_src_txt)-self.train_pad_num:],
+                                           self.train_tar_1_txt[len(self.train_tar_1_txt)-self.train_pad_num:])):
             src = nltk.word_tokenize(src)
             tar = nltk.word_tokenize(tar)
-            sentences, labels, srcs, keys, key_ans, tars = get_dcmn_data_from_gt(src, tar, self.abbrs,
+            sentences, labels, srcs, key_ans, tars = get_dcmn_data_from_gt(src, tar, self.abbrs,
                                                                            max_pad_length=max_pad_length,
                                                                            max_dcmn_seq_length=max_seq_length,
                                                                            tokenizer=tokenizer)
             self.train_dcmn_srcs.extend(sentences)
             self.train_dcmn_labels.extend(labels)
             self.train_seq_srcs.extend(srcs)
-            self.train_keys.extend(keys)
             self.train_order.append(len(sentences))
             self.train_seq_tars.extend(tars)
 
@@ -445,39 +377,36 @@ class DataGenerator():
 
         self._pad_test_data()
         k_as = []
-        for i, (src, tar) in enumerate(zip(self.test_src_txt, self.test_tar_1_txt)):
+        for i, (src, tar) in enumerate(zip(self.test_src_txt[len(self.test_src_txt)-self.test_pad_num:],
+                                           self.test_tar_1_txt[len(self.test_tar_1_txt)-self.test_pad_num:])):
             src = nltk.word_tokenize(src)
             tar = nltk.word_tokenize(tar)
-            sentences, labels, src, keys, key_ans, tars = get_dcmn_data_from_gt(src, tar, self.abbrs,
+            sentences, labels, src, key_ans, tars = get_dcmn_data_from_gt(src, tar, self.abbrs,
                                                                           max_pad_length=max_pad_length,
                                                                           max_dcmn_seq_length=max_seq_length,
                                                                           tokenizer=tokenizer)
             k_as.append(key_ans)
 
-        for i, (sts, masks, k_a) in enumerate(zip(self.test_src_txt, self.test_mask, k_as)):
+        for i, (sts, masks, k_a) in enumerate(zip(self.test_src_txt[len(self.test_src_txt)-self.test_pad_num:],
+                                                  self.test_mask[len(self.test_mask)-self.test_pad_num:],
+                                                  k_as)):
             sts = nltk.word_tokenize(sts)
-            sentences, labels, srcs, keys, src, tars = get_dcmn_data_from_step1(sts, masks, k_a, self.abbrs,
-                                                                     max_pad_length=max_pad_length,
-                                                                     max_dcmn_seq_length=max_seq_length,
-                                                                     tokenizer=tokenizer)
+            sentences, labels, srcs, src, tars = get_dcmn_data_from_step1(sts, masks, k_a, self.abbrs,
+                                                                          max_pad_length=max_pad_length,
+                                                                          max_dcmn_seq_length=max_seq_length,
+                                                                          tokenizer=tokenizer)
             self.test_order.append(len(sentences))
-            self.test_keys.extend(keys)
             self.test_dcmn_srcs.extend(sentences)
             self.test_dcmn_labels.extend(labels)
             self.test_seq_srcs.extend(srcs)
             self.test_seq_src_sep.append(src)
 
-        # self.train_seq_srcs, self.train_tar_2_txt = add_sep(train_srcs=self.train_seq_srcs,
-        #                                                     train_tars=self.train_tar_2_txt,
-        #                                                     train_order=self.train_order)
-
-
         # bert_model = 'microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext'
         #
         # bert = BertModel.from_pretrained(bert_model)
         # bert.to(self.device)
-        # self.train_embs = get_embs(bert, tokenizer, self.device, self.train_keys, self.abbrs, max_pad_length)
-        # self.test_embs = get_embs(bert, tokenizer, self.device, self.test_keys, self.abbrs, max_pad_length)
+        # self.train_embs = get_embs(bert, tokenizer, self.device, self.train_dcmn_srcs, max_pad_length)
+        # self.test_embs = get_embs(bert, tokenizer, self.device, self.test_dcmn_srcs, max_pad_length)
         # with open('./data/train_embs.pkl', 'wb') as f:
         #     pickle.dump(self.train_embs, f)
         # with open('./data/test_embs.pkl', 'wb') as f:
@@ -538,7 +467,7 @@ class DataGenerator():
                 src = src.split('[SEP] ')
                 for i, u in enumerate(values):
                     if u != '':
-                        src[2*i+1] = u + ' '
+                        src[2 * i + 1] = u + ' '
                 src = ''.join(src)
                 src = src.split('[CLS]')[1].strip()
                 results.append(src)
@@ -548,7 +477,7 @@ class DataGenerator():
                     p += 1
                 q = 0
                 values = []
-        sentences = results[:len(results)-self.test_pad_num]
+        sentences = results[:len(results) - self.test_pad_num]
 
         with open('./result/tmp.out.txt', 'w', encoding='utf-8') as f:
             f.writelines([x.lower() + '\n' for x in sentences])
@@ -560,11 +489,17 @@ class DataGenerator():
         for i, (src, tar) in enumerate(zip(self.train_src_txt, self.train_tar_1_txt)):
             src = nltk.word_tokenize(src)
             tar = nltk.word_tokenize(tar)
-            sentences, labels, srcs, keys, key_ans, tars = get_dcmn_data_from_gt(src, tar, self.abbrs,
+            sentences, labels, srcs, key_ans, tars = get_dcmn_data_from_gt(src, tar, self.abbrs,
                                                                            max_pad_length=self.max_pad_length,
                                                                            max_dcmn_seq_length=self.max_seq_length,
                                                                            tokenizer=self.tokenizer)
+            self.train_dcmn_srcs.extend(sentences)
+            self.train_dcmn_labels.extend(labels)
+            self.train_seq_srcs.extend(srcs)
+            self.train_order.append(len(sentences))
+            self.train_seq_tars.extend(tars)
             data_size += len(sentences)
+
         self.train_pad_num = (self.train_batch_size - data_size % self.train_batch_size) % self.train_batch_size
         for _ in range(self.train_pad_num):
             self.train_src_txt.append('Labs were significant for wbc .')
@@ -577,7 +512,7 @@ class DataGenerator():
         for i, (src, tar) in enumerate(zip(self.test_src_txt, self.test_tar_1_txt)):
             src = nltk.word_tokenize(src)
             tar = nltk.word_tokenize(tar)
-            sentences, labels, src, keys, key_ans, tars = get_dcmn_data_from_gt(src, tar, self.abbrs,
+            sentences, labels, src, key_ans, tars = get_dcmn_data_from_gt(src, tar, self.abbrs,
                                                                           max_pad_length=self.max_pad_length,
                                                                           max_dcmn_seq_length=self.max_seq_length,
                                                                           tokenizer=self.tokenizer)
@@ -585,10 +520,15 @@ class DataGenerator():
 
         for i, (sts, masks, k_a) in enumerate(zip(self.test_src_txt, self.test_mask, k_as)):
             sts = nltk.word_tokenize(sts)
-            sentences, labels, srcs, keys, src, tars = get_dcmn_data_from_step1(sts, masks, k_a, self.abbrs,
-                                                                     max_pad_length=self.max_pad_length,
-                                                                     max_dcmn_seq_length=self.max_seq_length,
-                                                                     tokenizer=self.tokenizer)
+            sentences, labels, srcs, src, tars = get_dcmn_data_from_step1(sts, masks, k_a, self.abbrs,
+                                                                          max_pad_length=self.max_pad_length,
+                                                                          max_dcmn_seq_length=self.max_seq_length,
+                                                                          tokenizer=self.tokenizer)
+            self.test_order.append(len(sentences))
+            self.test_dcmn_srcs.extend(sentences)
+            self.test_dcmn_labels.extend(labels)
+            self.test_seq_srcs.extend(srcs)
+            self.test_seq_src_sep.append(src)
             data_size += len(sentences)
 
         self.test_pad_num = (self.eval_batch_size - data_size % self.eval_batch_size) % self.eval_batch_size
@@ -599,8 +539,10 @@ class DataGenerator():
             self.test_mask.append([0, 0, 0, 0, 1, 0])
 
 
-
 if __name__ == '__main__':
+    import os
+
+    os.environ['CUDA_LAUNCH_BLOCKING'] = '3'
     from dcmn_seq2seq.config import DCMN_Config
     import dcmn_seq2seq.models.bert as seq_bert
     dcmn_config = DCMN_Config()
@@ -612,11 +554,6 @@ if __name__ == '__main__':
                        max_pad_length=dcmn_config.num_choices + 2,
                        max_seq_length=dcmn_config.max_seq_length, cuda=not dcmn_config.no_cuda,
                        tokenizer=dcmn_config.tokenizer, seq_tokenizer=seq_config.tokenizer)
-
-
-    with open('./outs/outs29.pkl', 'rb') as f:
-        outs = pickle.load(f)
-        dg.valid(outs)
 
     # print(len(dg.train_dcmn_srcs))
     # print('done, time cost:{}'.format(time.time()-t))

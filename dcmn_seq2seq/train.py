@@ -4,8 +4,6 @@ import torch
 import os
 import time
 from tqdm import tqdm
-from dcmn_seq2seq.utils import decode_sentence
-from dcmn_seq2seq.bleu_eval_new import get_score
 from torch.nn.functional import softmax
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',

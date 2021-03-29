@@ -32,12 +32,11 @@ from dcmn_seq2seq.train import train_valid
 from dcmn_seq2seq.config import DCMN_Config
 
 from dcmn_seq2seq.Seq2seq import DecoderRNN, Seq2seq, SEP, CLS
-from dcmn_seq2seq.utils import build_iterator_eval
 from dcmn_seq2seq.draw import DataGenerator
 import dcmn_seq2seq.models.bert as seq_bert
 from tqdm import tqdm
 
-# os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+os.environ['CUDA_LAUNCH_BLOCKING'] = '3'
 
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
