@@ -164,10 +164,7 @@ def train_valid(dcmn, dcmn_config, train_dataloader, eval_dataloader,
                 seq2seq, seq_config, seq_optimizer, seq_scheduler, seq_loss_fun, dg):
     num_train_epochs = dcmn_config.num_train_epochs
     device = dcmn_config.device
-    t_total = dcmn_config.t_total
     gradient_accumulation_steps = dcmn_config.gradient_accumulation_steps
-    warmup_proportion = dcmn_config.warmup_proportion
-    learning_rate = dcmn_config.learning_rate
     output_dir = dcmn_config.output_dir
     output_file = dcmn_config.output_file
     model_name = dcmn_config.model_name

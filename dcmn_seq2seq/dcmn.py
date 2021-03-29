@@ -1,8 +1,7 @@
 import torch
 from torch import nn
-
-from transformers.modeling_bert import BertPooler
-from transformers import BertPreTrainedModel, BertModel
+from transformers.models.bert.modeling_bert import BertPooler
+from transformers import BertModel
 
 from dcmn_seq2seq.utils import masked_softmax, seperate_seq
 
@@ -41,7 +40,7 @@ class SSingleMatchNet(nn.Module):
         return output
 
 
-class BertForMultipleChoiceWithMatch(BertPreTrainedModel):
+class BertForMultipleChoiceWithMatch(BertModel):
 
     def __init__(self, config, num_choices=2):
         super(BertForMultipleChoiceWithMatch, self).__init__(config)
@@ -56,7 +55,7 @@ class BertForMultipleChoiceWithMatch(BertPreTrainedModel):
         self.ssmatch = SSingleMatchNet(config)
         self.pooler = BertPooler(config)
         self.fuse = FuseNet(config)
-        self.apply(self._init_weights)
+        self.init_weights()
 
 
     def forward(self, input_ids=None, token_type_ids=None, attention_mask=None, doc_len=None, ques_len=None,
@@ -69,7 +68,8 @@ class BertForMultipleChoiceWithMatch(BertPreTrainedModel):
         flat_token_type_ids = token_type_ids.view(-1, token_type_ids.size(-1))
         flat_attention_mask = attention_mask.view(-1, attention_mask.size(-1))
 
-        sequence_output, pooled_output = self.bert(flat_input_ids, flat_token_type_ids, flat_attention_mask)
+        bert_output = self.bert(flat_input_ids, flat_token_type_ids, flat_attention_mask)
+        sequence_output = bert_output[0]
 
         doc_ques_seq_output, ques_option_seq_output, doc_seq_output, ques_seq_output, option_seq_output = seperate_seq(
             sequence_output, doc_len, ques_len, option_len)

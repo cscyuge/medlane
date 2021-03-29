@@ -29,7 +29,7 @@ class DCMN_Config():
         self.eval_batch_size = 4
         self.seq_batch_size = 4
         self.num_choices = 8
-        self.learning_rate = 1e-5/2.0
+        self.learning_rate = 1e-5/5.0
         self.num_train_epochs = 30.0
         self.model_name = 'output_test.bin'
         self.n_gpu = 1
@@ -54,16 +54,6 @@ class DCMN_Config():
         # Loss scaling, positive power of 2 values can improve fp16 convergence.
         self.loss_scale = 4
 
-        output_eval_file = os.path.join(self.output_dir, self.output_file)
-
-        if os.path.exists(output_eval_file) and self.output_file != 'output_test.txt':
-            raise ValueError("Output file ({}) already exists and is not empty.".format(output_eval_file))
-        with open(output_eval_file, "w") as writer:
-            writer.write("***** Eval results Epoch  %s *****\t\n" % (
-                time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))))
-            dic = str([(name, value) for name,value in vars(self).items()])
-            writer.write("%s\t\n" % dic)
-
         if self.no_cuda:
             self.device = torch.device("cuda" if torch.cuda.is_available() and not self.no_cuda else "cpu")
         else:
@@ -80,14 +70,6 @@ class DCMN_Config():
 
         self.t_total = 0
         self.hidden_size = 768
-
-
-
-class Seq2seq_Config():
-
-    def __init__(self):
-        pass
-
 
 
 if __name__ == '__main__':

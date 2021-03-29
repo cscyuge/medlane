@@ -49,6 +49,17 @@ logger = logging.getLogger(__name__)
 def build_dcmn():
     dcmn_config = DCMN_Config()
 
+    output_eval_file = os.path.join(dcmn_config.output_dir, dcmn_config.output_file)
+
+    if os.path.exists(output_eval_file) and dcmn_config.output_file != 'output_test.txt':
+        raise ValueError("Output file ({}) already exists and is not empty.".format(output_eval_file))
+    with open(output_eval_file, "w") as writer:
+        writer.write("***** Eval results Epoch  %s *****\t\n" % (
+            time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))))
+        dic = str([(name, value) for name, value in vars(dcmn_config).items()])
+        writer.write("%s\t\n" % dic)
+
+
     random.seed(dcmn_config.seed)
     np.random.seed(dcmn_config.seed)
     torch.manual_seed(dcmn_config.seed)
@@ -62,6 +73,7 @@ def build_dcmn():
                        max_pad_length=dcmn_config.num_choices+2,
                        max_seq_length = dcmn_config.max_seq_length, cuda=not dcmn_config.no_cuda,
                        tokenizer = dcmn_config.tokenizer, seq_tokenizer=seq_config.tokenizer)
+
 
     train_dataloader, train_examples_size = get_dataloader(data_dir=dcmn_config.data_dir, data_file=dcmn_config.train_file,
                                                            num_choices=dcmn_config.num_choices,

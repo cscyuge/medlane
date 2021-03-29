@@ -14,7 +14,7 @@ class Config(object):
         self.num_epochs = 30                                            # epoch数
         self.batch_size = batch_size                                       # mini-batch大小
         # self.pad_size = 64                                             # 每句话处理成的长度(短填长切)
-        self.learning_rate = 5e-5                                        # 学习率
+        self.learning_rate = 5e-5 / 5.0                                       # 学习率
         self.bert_path = 'microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext'
         # self.bert_path = 'bert-base-cased'
 
@@ -33,5 +33,7 @@ class Model(nn.Module):
     def forward(self, x):
         context = x[0]  # 输入的句子
         mask = x[1]  # 对padding部分进行mask，和句子一个size，padding部分用0表示，如：[1, 1, 1, 1, 0, 0]
-        state, pooled = self.bert(context, attention_mask=mask)
+        bert_output = self.bert(context, attention_mask=mask)
+        state = bert_output[0]
+        pooled = bert_output[1]
         return state, pooled

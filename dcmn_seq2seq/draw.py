@@ -240,7 +240,7 @@ def get_dcmn_data_from_step1(src_words, masks, k_a, abbrs, max_pad_length, max_d
 
             if len(tokenizer.tokenize(temp[0])) + len(tokenizer.tokenize(temp[1])) + len(
                     tokenizer.tokenize(temp[2])) >= max_dcmn_seq_length:
-                src.append(key)
+                src.append(src_words[i])
                 continue
             sentences.append(temp)
             keys.append(key)
@@ -248,6 +248,8 @@ def get_dcmn_data_from_step1(src_words, masks, k_a, abbrs, max_pad_length, max_d
             srcs.append('[CLS] ' + ' '.join(src_words[:i]) + ' [SEP] [MASK] [SEP] ' + ' '.join(src_words[i + 1:]))
             tars.append('[CLS] ' + ' '.join(src_words[:i]) + ' [SEP] ' + temp[label+2] + ' [SEP] ' + ' '.join(src_words[i + 1:]))
             src.extend(['[SEP]', key, '[SEP]'])
+        else:
+            src.append(src_words[i])
 
     return sentences, labels, srcs, keys, ' '.join(src), tars
 
@@ -309,7 +311,7 @@ def add_sep(train_srcs, train_tars, train_order):
     return train_input, train_output
 
 
-def get_embs(bert, tokenizer,device, dcmn_keys, abbrs, max_pad_length):
+def get_embs(bert, tokenizer, device, dcmn_keys, abbrs, max_pad_length):
 
     pad_tokens = ['[PAD]']
     ids = tokenizer.convert_tokens_to_ids(pad_tokens)
@@ -317,8 +319,11 @@ def get_embs(bert, tokenizer,device, dcmn_keys, abbrs, max_pad_length):
     inputs = torch.tensor(inputs)
     inputs = inputs.to(device)
     with torch.no_grad():
-        _, pad_embs = bert(inputs)
-    pad_embs = pad_embs.cpu().detach().numpy()[0]
+        bert_output = bert(inputs)
+        pad_embs = bert_output[0]
+        pad_embs = pad_embs.cpu().detach().numpy()
+        pad_embs = np.sum(pad_embs, axis=1) / len(ids)
+        pad_embs = pad_embs[0]
     dcmn_embs = []
     for key in tqdm(dcmn_keys):
         emb_values = []
@@ -335,8 +340,12 @@ def get_embs(bert, tokenizer,device, dcmn_keys, abbrs, max_pad_length):
             inputs = torch.tensor(inputs)
             inputs = inputs.to(device)
             with torch.no_grad():
-                _, embs = bert(inputs)
-                emb_values.append(embs.cpu().detach().numpy()[0])
+                bert_output = bert(inputs)
+                embs = bert_output[0]
+                embs = embs.cpu().detach().numpy()
+                embs = np.sum(embs, axis=1) / len(ids)
+                embs = embs[0]
+                emb_values.append(embs)
         while len(emb_values) < max_pad_length - 2:
             emb_values.append(pad_embs)
         dcmn_embs.append(emb_values)
@@ -458,9 +467,9 @@ class DataGenerator():
             self.test_seq_srcs.extend(srcs)
             self.test_seq_src_sep.append(src)
 
-        # self.train_seq_srcs, self.train_tar_2_txt = add_sep(train_srcs=self.train_seq_srcs,
-        #                                                     train_tars=self.train_tar_2_txt,
-        #                                                     train_order=self.train_order)
+        self.train_seq_srcs, self.train_tar_2_txt = add_sep(train_srcs=self.train_seq_srcs,
+                                                            train_tars=self.train_tar_2_txt,
+                                                            train_order=self.train_order)
 
         # bert_model = 'microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext'
         #
@@ -528,7 +537,7 @@ class DataGenerator():
                 src = src.split('[SEP] ')
                 for i, u in enumerate(values):
                     if u != '':
-                        src[2*i+1] = u
+                        src[2*i+1] = u + ' '
                 src = ''.join(src)
                 src = src.split('[CLS]')[1].strip()
                 results.append(src)
@@ -588,12 +597,25 @@ class DataGenerator():
             self.test_tar_2_txt.append('Labs were significant for white blood cell .')
             self.test_mask.append([0, 0, 0, 0, 1, 0])
 
+
+
 if __name__ == '__main__':
-    # t = time.time()
-    dg = DataGenerator(3, 3)
-    # with open('outs.pkl', 'rb') as f:
-    #     outs = pickle.load(f)
-    #     dg.valid(outs)
+    from dcmn_seq2seq.config import DCMN_Config
+    import dcmn_seq2seq.models.bert as seq_bert
+    dcmn_config = DCMN_Config()
+
+    tokenizer = dcmn_config.tokenizer
+    seq_config = seq_bert.Config(dcmn_config.seq_batch_size, dcmn_config.no_cuda)
+    dg = DataGenerator(train_batch_size=dcmn_config.train_batch_size,
+                       eval_batch_size=dcmn_config.eval_batch_size,
+                       max_pad_length=dcmn_config.num_choices + 2,
+                       max_seq_length=dcmn_config.max_seq_length, cuda=not dcmn_config.no_cuda,
+                       tokenizer=dcmn_config.tokenizer, seq_tokenizer=seq_config.tokenizer)
+
+
+    with open('./outs/outs29.pkl', 'rb') as f:
+        outs = pickle.load(f)
+        dg.valid(outs)
 
     # print(len(dg.train_dcmn_srcs))
     # print('done, time cost:{}'.format(time.time()-t))
