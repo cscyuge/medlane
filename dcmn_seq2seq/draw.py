@@ -551,7 +551,7 @@ class DataGenerator():
         sentences = results[:len(results)-self.test_pad_num]
 
         with open('./result/tmp.out.txt', 'w', encoding='utf-8') as f:
-            f.writelines([x + '\n' for x in sentences])
+            f.writelines([x.lower() + '\n' for x in sentences])
         bleu, hit, com, ascore = get_score()
         return sentences, bleu, hit, com, ascore
 

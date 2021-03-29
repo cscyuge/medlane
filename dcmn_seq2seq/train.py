@@ -212,7 +212,7 @@ def train_valid(dcmn, dcmn_config, train_dataloader, eval_dataloader,
             save_file['best_ascore'] = ascore
             torch.save(save_file, './cache/best_save.data')
             with open('./result/best_save_bert.out.txt', 'w', encoding='utf-8') as f:
-                f.writelines([x + '\n' for x in val_results])
+                f.writelines([x.lower() + '\n' for x in val_results])
 
         result = {'eval_loss': eval_loss,
                   'best_accuracy': best_accuracy,
