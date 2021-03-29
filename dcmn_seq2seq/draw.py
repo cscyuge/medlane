@@ -467,9 +467,10 @@ class DataGenerator():
             self.test_seq_srcs.extend(srcs)
             self.test_seq_src_sep.append(src)
 
-        self.train_seq_srcs, self.train_tar_2_txt = add_sep(train_srcs=self.train_seq_srcs,
-                                                            train_tars=self.train_tar_2_txt,
-                                                            train_order=self.train_order)
+        # self.train_seq_srcs, self.train_tar_2_txt = add_sep(train_srcs=self.train_seq_srcs,
+        #                                                     train_tars=self.train_tar_2_txt,
+        #                                                     train_order=self.train_order)
+
 
         # bert_model = 'microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext'
         #
