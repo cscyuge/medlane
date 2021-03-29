@@ -36,7 +36,7 @@ from dcmn_seq2seq.draw import DataGenerator
 import dcmn_seq2seq.models.bert as seq_bert
 from tqdm import tqdm
 
-os.environ['CUDA_LAUNCH_BLOCKING'] = '3'
+os.environ['CUDA_VISIBLE_DEVICES'] = '3'
 
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',

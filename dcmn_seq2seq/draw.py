@@ -163,6 +163,9 @@ def get_one_sample(src_words, key, key_tar, abbrs, max_pad_length, max_dcmn_seq_
         temp = [' '.join(src_words), 'what is {} ?'.format(key), key]
         while len(temp) < max_pad_length:
             temp.append('[PAD]')
+        if len(tokenizer.tokenize(temp[0])) + len(tokenizer.tokenize(temp[1])) + len(
+                tokenizer.tokenize(temp[2])) >= max_dcmn_seq_length:
+            return None, None, None, None
         src = '[CLS] ' + ' '.join(src_words[:key_index]) + ' [SEP] [MASK] [SEP] ' + ' '.join(src_words[key_index + 1:])
         tar = '[CLS] ' + ' '.join(src_words[:key_index]) + ' [SEP] ' + temp[2] + ' [SEP] ' + ' '.join(
             src_words[key_index + 1:])
@@ -540,9 +543,6 @@ class DataGenerator:
 
 
 if __name__ == '__main__':
-    import os
-
-    os.environ['CUDA_LAUNCH_BLOCKING'] = '3'
     from dcmn_seq2seq.config import DCMN_Config
     import dcmn_seq2seq.models.bert as seq_bert
     dcmn_config = DCMN_Config()
@@ -554,6 +554,9 @@ if __name__ == '__main__':
                        max_pad_length=dcmn_config.num_choices + 2,
                        max_seq_length=dcmn_config.max_seq_length, cuda=not dcmn_config.no_cuda,
                        tokenizer=dcmn_config.tokenizer, seq_tokenizer=seq_config.tokenizer)
+    print(len(dg.train_seq_srcs_masks))
+    print(len(dg.train_dcmn_srcs))
+    print(len(dg.train_embs))
 
     # print(len(dg.train_dcmn_srcs))
     # print('done, time cost:{}'.format(time.time()-t))
