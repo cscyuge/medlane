@@ -36,7 +36,7 @@ from dcmn_seq2seq.draw import DataGenerator
 import dcmn_seq2seq.models.bert as seq_bert
 from tqdm import tqdm
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '3'
+os.environ['CUDA_VISIBLE_DEVICES'] = '3,0'
 
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
@@ -149,7 +149,7 @@ def build_seq2seq(config, hidden_size, max_len, no_cuda, dg):
                       correct_bias=False)
     scheduler = get_linear_schedule_with_warmup(optimizer,
                                                 num_warmup_steps=int(
-                                                    0.03 * len(dg.train_src_txt) * config.num_epochs),
+                                                    config.warmup_proportion * len(dg.train_src_txt) * config.num_epochs),
                                                 num_training_steps=len(dg.train_src_txt) * config.num_epochs)  # PyTorch scheduler
 
     if not no_cuda:
@@ -162,6 +162,10 @@ def main():
         dcmn_optimizer, dcmn_scheduler, dcmn_loss_fun, dg, seq_config = build_dcmn()
 
     seq2seq, seq_optimizer, seq_scheduler, seq_loss_fun = build_seq2seq(seq_config, 768, dcmn_config.max_seq_length, dcmn_config.no_cuda, dg)
+    save_file_best = torch.load('./backup/v9/cache/best_save.data', map_location=torch.device('cuda:1'))
+    seq2seq.load_state_dict(save_file_best['seq_para'])
+    dcmn.load_state_dict(save_file_best['dcmn_para'])
+
     train_valid(dcmn, dcmn_config, train_dataloader, eval_dataloader, dcmn_optimizer, dcmn_scheduler, dcmn_loss_fun,
                 seq2seq,seq_config, seq_optimizer, seq_scheduler, seq_loss_fun, dg)
 

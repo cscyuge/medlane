@@ -14,12 +14,17 @@ class Config(object):
         self.num_epochs = 30                                            # epoch数
         self.batch_size = batch_size                                       # mini-batch大小
         # self.pad_size = 64                                             # 每句话处理成的长度(短填长切)
-        self.learning_rate = 5e-5 / 5.0                                       # 学习率
+        self.learning_rate = 8.264744570615555e-06
+
+        # self.learning_rate = 5e-5 / 5.0                                       # 学习率
         self.bert_path = 'microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext'
         # self.bert_path = 'bert-base-cased'
 
         self.tokenizer = BertTokenizer.from_pretrained(self.bert_path)
         self.hidden_size = 768
+
+        # self.warmup_proportion = 0.03
+        self.warmup_proportion = 0.0
 
 
 class Model(nn.Module):

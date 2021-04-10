@@ -160,16 +160,17 @@ def get_one_sample(src_words, key, key_tar, abbrs, max_pad_length, max_dcmn_seq_
                 src_words[key_index + 1:])
             return temp, label, src, tar
     else:
-        temp = [' '.join(src_words), 'what is {} ?'.format(key), key]
-        while len(temp) < max_pad_length:
-            temp.append('[PAD]')
-        if len(tokenizer.tokenize(temp[0])) + len(tokenizer.tokenize(temp[1])) + len(
-                tokenizer.tokenize(temp[2])) >= max_dcmn_seq_length:
-            return None, None, None, None
-        src = '[CLS] ' + ' '.join(src_words[:key_index]) + ' [SEP] [MASK] [SEP] ' + ' '.join(src_words[key_index + 1:])
-        tar = '[CLS] ' + ' '.join(src_words[:key_index]) + ' [SEP] ' + temp[2] + ' [SEP] ' + ' '.join(
-            src_words[key_index + 1:])
-        return temp, 0, src, tar
+        return None, None, None, None
+        # temp = [' '.join(src_words), 'what is {} ?'.format(key), key]
+        # while len(temp) < max_pad_length:
+        #     temp.append('[PAD]')
+        # if len(tokenizer.tokenize(temp[0])) + len(tokenizer.tokenize(temp[1])) + len(
+        #         tokenizer.tokenize(temp[2])) >= max_dcmn_seq_length:
+        #     return None, None, None, None
+        # src = '[CLS] ' + ' '.join(src_words[:key_index]) + ' [SEP] [MASK] [SEP] ' + ' '.join(src_words[key_index + 1:])
+        # tar = '[CLS] ' + ' '.join(src_words[:key_index]) + ' [SEP] ' + temp[2] + ' [SEP] ' + ' '.join(
+        #     src_words[key_index + 1:])
+        # return temp, 0, src, tar
 
 
 def get_dcmn_data_from_gt(src_words, tar_words, abbrs, max_pad_length, max_dcmn_seq_length, tokenizer):
@@ -446,7 +447,7 @@ class DataGenerator:
 
         values = []
         for out in outs:
-            out = self.seq_tokenizer.convert_ids_to_tokens(out)
+            # out = self.seq_tokenizer.convert_ids_to_tokens(out)
             temp = ''
             for word in out:
                 if word == '[CLS]':
@@ -460,7 +461,7 @@ class DataGenerator:
                     temp += ' '
                     temp += word
             out = temp.strip().split('[SEP]')
-            if len(out) == 3:
+            if len(out) >= 2:
                 values.append(out[1].strip())
             else:
                 values.append('')
@@ -557,6 +558,11 @@ if __name__ == '__main__':
     print(len(dg.train_seq_srcs_masks))
     print(len(dg.train_dcmn_srcs))
     print(len(dg.train_embs))
+
+    with open('./outs/outs17.pkl', 'rb') as f:
+        outs = pickle.load(f)
+
+    dg.valid(outs)
 
     # print(len(dg.train_dcmn_srcs))
     # print('done, time cost:{}'.format(time.time()-t))
