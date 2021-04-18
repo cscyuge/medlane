@@ -83,7 +83,7 @@ def train(model, dataloader, device, optimizer, dcmn_scheduler, global_step,
         outputs = torch.matmul(filter_mat, outputs)
 
         batch_scores = softmax(outputs, dim=1)
-        batch_scores = batch_scores.expand(dcmn_config.train_batch_size, dcmn_config.num_choices,
+        batch_scores = batch_scores.expand(outputs.shape[0], dcmn_config.num_choices,
                                             seq_config.hidden_size)
         sum_embs = torch.sum(key_embs * batch_scores, dim=1)
 
@@ -160,7 +160,7 @@ def valid(dcmn, dataloader, device, loss_fun, dcmn_config,
             logits = torch.matmul(filter_mat, logits)
 
             batch_scores = softmax(logits, dim=1)
-            batch_scores = batch_scores.expand(dcmn_config.eval_batch_size, dcmn_config.num_choices,
+            batch_scores = batch_scores.expand(logits.shape[0], dcmn_config.num_choices,
                                                              seq_config.hidden_size)
             sum_embs = torch.sum(key_embs * batch_scores, dim=1)
             batch_src = [src_ids, src_masks]

@@ -443,7 +443,7 @@ class DataGenerator:
 
         values = []
         for out in outs:
-            # out = self.seq_tokenizer.convert_ids_to_tokens(out)
+            out = self.seq_tokenizer.convert_ids_to_tokens(out)
             temp = ''
             for word in out:
                 if word == '[CLS]':
@@ -525,10 +525,10 @@ if __name__ == '__main__':
     print(len(dg.train_embs))
     print(len(dg.test_seq_srcs_ids))
 
-    # with open('./outs/outs17.pkl', 'rb') as f:
-    #     outs = pickle.load(f)
-    #
-    # dg.valid(outs)
+    with open('./outs/outs0.pkl', 'rb') as f:
+        outs = pickle.load(f)
+
+    dg.valid(outs)
 
     # print(len(dg.train_dcmn_srcs))
     # print('done, time cost:{}'.format(time.time()-t))
