@@ -22,9 +22,9 @@ class DCMN_Config():
         self.test_file = 'dev_sentences.pkl'
 
         self.max_seq_length = 64
-        self.train_batch_size = 4
-        self.eval_batch_size = 4
-        self.seq_batch_size = 4
+        self.train_batch_size = 6
+        self.eval_batch_size = 6
+        self.seq_batch_size = 6
         self.num_choices = 8
         # self.learning_rate = 1e-5/5.0
         self.learning_rate = 1.0370370370370371e-06

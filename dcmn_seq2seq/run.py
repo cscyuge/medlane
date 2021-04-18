@@ -162,9 +162,9 @@ def main():
         dcmn_optimizer, dcmn_scheduler, dcmn_loss_fun, dg, seq_config = build_dcmn()
 
     seq2seq, seq_optimizer, seq_scheduler, seq_loss_fun = build_seq2seq(seq_config, 768, dcmn_config.max_seq_length, dcmn_config.no_cuda, dg)
-    save_file_best = torch.load('./backup/v9/cache/best_save.data', map_location=torch.device('cuda:1'))
-    seq2seq.load_state_dict(save_file_best['seq_para'])
-    dcmn.load_state_dict(save_file_best['dcmn_para'])
+    # save_file_best = torch.load('./backup/v9/cache/best_save.data', map_location=torch.device('cuda:1'))
+    # seq2seq.load_state_dict(save_file_best['seq_para'])
+    # dcmn.load_state_dict(save_file_best['dcmn_para'])
 
     train_valid(dcmn, dcmn_config, train_dataloader, eval_dataloader, dcmn_optimizer, dcmn_scheduler, dcmn_loss_fun,
                 seq2seq,seq_config, seq_optimizer, seq_scheduler, seq_loss_fun, dg)

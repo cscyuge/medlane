@@ -72,51 +72,50 @@ def train(model, dataloader, device, optimizer, dcmn_scheduler, global_step,
         outputs = model(input_ids, segment_ids, input_mask, doc_len, ques_len, option_len)
         loss = loss_fun(outputs, label_ids)
 
+        outs = np.argmax(outputs.detach().cpu().numpy(), axis=1)
+        filter_mat = torch.zeros(dcmn_config.train_batch_size, dcmn_config.num_choices, dcmn_config.num_choices)
+        for i, out in enumerate(outs):
+            filter_mat[i][out][out] = 1
+        filter_mat = filter_mat.to(device)
+        outputs = outputs.unsqueeze(-1)
 
-        logits = outputs.detach().cpu().numpy()
-        label_ids = label_ids.to('cpu').numpy()
-        tmp_eval_accuracy = accuracy(logits, label_ids)
-        train_acc += tmp_eval_accuracy
+        # print(filter_mat.shape, outputs.shape)
+        outputs = torch.matmul(filter_mat, outputs)
 
-        # batch_scores = softmax(outputs, dim=1)
-        # batch_scores = batch_scores.unsqueeze(-1).expand(dcmn_config.train_batch_size, dcmn_config.num_choices,
-        #                                                  seq_config.hidden_size)
-        # sum_embs = torch.sum(key_embs * batch_scores, dim=1)
-        #
-        # decoder_outputs, decoder_hidden, ret_dict = seq2seq([src_ids,src_masks], indices, sum_embs, tar_ids, 0.5)
-        # target = tar_ids[:, 1:].reshape(-1)
-        # mask = tar_masks[:, 1:].reshape(-1).float()
-        # logit = torch.stack(decoder_outputs, 1).view(target.shape[0], -1)
-        #
-        # seq_loss = (seq_loss_fun(input=logit, target=target) * mask).sum() / mask.sum()
+        batch_scores = softmax(outputs, dim=1)
+        batch_scores = batch_scores.expand(dcmn_config.train_batch_size, dcmn_config.num_choices,
+                                            seq_config.hidden_size)
+        sum_embs = torch.sum(key_embs * batch_scores, dim=1)
+
+        decoder_outputs, decoder_hidden, ret_dict = seq2seq([src_ids,src_masks], indices, sum_embs, tar_ids, 0.5)
+        target = tar_ids[:, 1:].reshape(-1)
+        mask = tar_masks[:, 1:].reshape(-1).float()
+        logit = torch.stack(decoder_outputs, 1).view(target.shape[0], -1)
+
+        seq_loss = (seq_loss_fun(input=logit, target=target) * mask).sum() / mask.sum()
         tr_dcmn_loss += loss.item()
-        # tr_seq_loss += seq_loss.item()
+        tr_seq_loss += seq_loss.item()
 
         if step % 500 == 0:
-            # print('train dcmn loss:{:.6f}, train seq2seq loss:{:.6f}'.format(loss.item(), seq_loss.item()))
-            print('train dcmn loss:{:.6f}, train seq2seq loss:{:.6f}'.format(loss.item(), loss.item()))
+            print('train dcmn loss:{:.6f}, train seq2seq loss:{:.6f}'.format(loss.item(), seq_loss.item()))
+            # print('train dcmn loss:{:.6f}, train seq2seq loss:{:.6f}'.format(loss.item(), loss.item()))
 
         nb_tr_examples += input_ids.size(0)
         nb_tr_steps += 1
 
-        # total_loss = seq_loss + loss
-        total_loss = loss
+        total_loss = seq_loss + loss
+        # total_loss = loss
         total_loss.backward()
 
-        # seq_optimizer.step()
-        # seq_scheduler.step()
-        # seq_optimizer.zero_grad()
+        seq_optimizer.step()
+        seq_scheduler.step()
+        seq_optimizer.zero_grad()
 
-        # modify learning rate with special warm up BERT uses
-        # lr_this_step = learning_rate * warmup_linear(global_step / t_total, warmup_proportion)
-        # for param_group in optimizer.param_groups:
-        #     param_group['lr'] = lr_this_step
         optimizer.step()
         dcmn_scheduler.step()
         optimizer.zero_grad()
         global_step += 1
 
-    # logger.info("lr = %f", lr_this_step)
 
     train_acc = train_acc / nb_tr_examples
 
@@ -142,29 +141,38 @@ def valid(dcmn, dataloader, device, loss_fun, dcmn_config,
 
             tmp_eval_loss = loss_fun(logits, label_ids)
 
-            logits = logits.detach().cpu().numpy()
-            outputs = np.argmax(logits, axis=1)
-            for output in outputs:
-                # print(output)
-                word = sentences[p][output+2]
-                # print(word)
-                p += 1
-                outs.append(['[CLS]','[SEP]',word,'[SEP]','.'])
+            # logits = logits.detach().cpu().numpy()
+            # outputs = np.argmax(logits, axis=1)
+            # for output in outputs:
+            #     # print(output)
+            #     word = sentences[p][output+2]
+            #     # print(word)
+            #     p += 1
+            #     outs.append(['[CLS]','[SEP]',word,'[SEP]','.'])
+            dcmn_outs = np.argmax(logits.detach().cpu().numpy(), axis=1)
+            filter_mat = torch.zeros(dcmn_config.eval_batch_size, dcmn_config.num_choices, dcmn_config.num_choices)
+            for i, out in enumerate(dcmn_outs):
+                filter_mat[i][out][out] = 1
+            filter_mat = filter_mat.to(device)
+            logits = logits.unsqueeze(-1)
 
-            # batch_scores = softmax(logits, dim=1)
-            # batch_scores = batch_scores.unsqueeze(-1).expand(dcmn_config.eval_batch_size, dcmn_config.num_choices,
-            #                                                  seq_config.hidden_size)
-            # sum_embs = torch.sum(key_embs * batch_scores, dim=1)
-            # batch_src = [src_ids, src_masks]
-            # decoder_outputs, decoder_hidden, ret_dict = seq2seq(batch_src, indices, sum_embs, None, 0.0)
-            # symbols = ret_dict['sequence']
-            # symbols = torch.cat(symbols, 1).data.cpu().numpy()
-            # for u in symbols:
-            #     outs.append(u)
+            # print(filter_mat.shape, outputs.shape)
+            logits = torch.matmul(filter_mat, logits)
+
+            batch_scores = softmax(logits, dim=1)
+            batch_scores = batch_scores.expand(dcmn_config.eval_batch_size, dcmn_config.num_choices,
+                                                             seq_config.hidden_size)
+            sum_embs = torch.sum(key_embs * batch_scores, dim=1)
+            batch_src = [src_ids, src_masks]
+            decoder_outputs, decoder_hidden, ret_dict = seq2seq(batch_src, indices, sum_embs, None, 0.0)
+            symbols = ret_dict['sequence']
+            symbols = torch.cat(symbols, 1).data.cpu().numpy()
+            for u in symbols:
+                outs.append(u)
 
             # logits = logits.detach().cpu().numpy()
             label_ids = label_ids.to('cpu').numpy()
-            tmp_eval_accuracy = accuracy(logits, label_ids)
+            tmp_eval_accuracy = accuracy(logits.detach().cpu().numpy(), label_ids)
 
             eval_loss += tmp_eval_loss.mean().item()
             eval_accuracy += tmp_eval_accuracy
