@@ -73,7 +73,7 @@ def train(model, dataloader, device, optimizer, dcmn_scheduler, global_step,
         loss = loss_fun(outputs, label_ids)
 
         outs = np.argmax(outputs.detach().cpu().numpy(), axis=1)
-        filter_mat = torch.zeros(dcmn_config.train_batch_size, dcmn_config.num_choices, dcmn_config.num_choices)
+        filter_mat = torch.zeros(outputs.shape[0], dcmn_config.num_choices, dcmn_config.num_choices)
         for i, out in enumerate(outs):
             filter_mat[i][out][out] = 1
         filter_mat = filter_mat.to(device)
@@ -150,7 +150,7 @@ def valid(dcmn, dataloader, device, loss_fun, dcmn_config,
             #     p += 1
             #     outs.append(['[CLS]','[SEP]',word,'[SEP]','.'])
             dcmn_outs = np.argmax(logits.detach().cpu().numpy(), axis=1)
-            filter_mat = torch.zeros(dcmn_config.eval_batch_size, dcmn_config.num_choices, dcmn_config.num_choices)
+            filter_mat = torch.zeros(logits.shape[0], dcmn_config.num_choices, dcmn_config.num_choices)
             for i, out in enumerate(dcmn_outs):
                 filter_mat[i][out][out] = 1
             filter_mat = filter_mat.to(device)
