@@ -208,7 +208,7 @@ def get_dcmn_data_from_gt(src_words, tar_words, abbrs, max_pad_length, max_dcmn_
                     labels.append(label)
                     key_choices.append(choices)
                     key_ans[word] = temp[label + 2]
-                    seq_src_words[i] = '[MASK]'
+                    seq_src_words[i+k] = '[MASK]'
 
             i = p
             j = q
@@ -242,6 +242,7 @@ def get_dcmn_data_from_step1(src_words, masks, k_a, abbrs, max_pad_length, max_d
             sentences.append(temp)
             labels.append(label)
             key_choices.append(choices)
+            seq_src_words[i] = '[MASK]'
 
     return sentences, labels, ' '.join(seq_src_words), key_choices
 
@@ -309,6 +310,8 @@ class DataGenerator:
                                                                                   max_pad_length=max_pad_length,
                                                                                   max_dcmn_seq_length=max_seq_length,
                                                                                   tokenizer=tokenizer)
+            if (len(sentences)!=_src.count('[MASK]')):
+                print(i, src, len(sentences))
             self.train_dcmn_srcs.extend(sentences)
             self.train_dcmn_labels.extend(labels)
             self.train_seq_srcs.append(_src)
@@ -342,6 +345,8 @@ class DataGenerator:
                                                                             tokenizer=tokenizer)
             self.test_dcmn_srcs.extend(sentences)
             self.test_dcmn_labels.extend(labels)
+            if (len(sentences)!=_src.count('[MASK]')):
+                print(i, sts)
             self.test_seq_srcs.append(_src)
             self.test_key_choices.append(key_choices)
 
@@ -357,8 +362,8 @@ class DataGenerator:
         for u in self.train_tar_2_txt:
             self.train_seq_tars.append('[CLS] ' + u + ' [SEP]')
 
-        self._train_seq_srcs = self.train_seq_srcs
-        self._test_seq_srcs = self.test_seq_srcs
+        self._train_seq_srcs = self.train_seq_srcs[:]
+        self._test_seq_srcs = self.test_seq_srcs[:]
 
         self.train_seq_srcs_ids, self.train_seq_srcs_masks = seq_tokenize(self.train_seq_srcs, seq_tokenizer,
                                                                           max_seq_length)
@@ -433,8 +438,8 @@ class DataGenerator:
         self.q = 0
         self.train_seq_srcs_ok = []
         self.test_seq_srcs_ok = []
-        self.train_seq_srcs = self._train_seq_srcs
-        self.test_seq_srcs = self._test_seq_srcs
+        self.train_seq_srcs = self._train_seq_srcs[:]
+        self.test_seq_srcs = self._test_seq_srcs[:]
 
     def get_eval_dataloader(self, outs):
         p = 0
