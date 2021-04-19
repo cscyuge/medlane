@@ -140,6 +140,8 @@ def valid(dcmn, dataloader, device, loss_fun, dcmn_config,
             logits = dcmn(input_ids, segment_ids, input_mask, all_doc_len, all_ques_len, all_option_len)
 
             tmp_eval_loss = loss_fun(logits, label_ids)
+            label_ids = label_ids.to('cpu').numpy()
+            tmp_eval_accuracy = accuracy(logits.detach().cpu().numpy(), label_ids)
 
             # logits = logits.detach().cpu().numpy()
             # outputs = np.argmax(logits, axis=1)
@@ -169,10 +171,6 @@ def valid(dcmn, dataloader, device, loss_fun, dcmn_config,
             symbols = torch.cat(symbols, 1).data.cpu().numpy()
             for u in symbols:
                 outs.append(u)
-
-            # logits = logits.detach().cpu().numpy()
-            label_ids = label_ids.to('cpu').numpy()
-            tmp_eval_accuracy = accuracy(logits.detach().cpu().numpy(), label_ids)
 
             eval_loss += tmp_eval_loss.mean().item()
             eval_accuracy += tmp_eval_accuracy
