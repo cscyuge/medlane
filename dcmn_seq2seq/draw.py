@@ -424,6 +424,10 @@ class DataGenerator:
             if p < len(self.train_seq_srcs):
                 self.train_seq_srcs[p] = self.train_seq_srcs[p].replace('[MASK]', self.train_key_choices[p][self.k][out], 1)
                 self.k += 1
+        while p < len(self.train_seq_srcs) and self.train_seq_srcs[p].find('[MASK]') == -1:
+            self.train_seq_srcs_ok.append(self.train_seq_srcs[p])
+            p += 1
+            self.k = 0
 
     def get(self):
         p = len(self.train_seq_srcs_ok)
@@ -452,6 +456,10 @@ class DataGenerator:
             if p < len(self.test_seq_srcs):
                 self.test_seq_srcs[p] = self.test_seq_srcs[p].replace('[MASK]', self.test_key_choices[p][k][out], 1)
                 k += 1
+        while p < len(self.test_seq_srcs) and self.test_seq_srcs[p].find('[MASK]') == -1:
+            self.test_seq_srcs_ok.append(self.test_seq_srcs[p])
+            p += 1
+            k = 0
 
         test_srcs = self.test_seq_srcs_ok
         src_ids, src_masks = seq_tokenize(test_srcs, self.seq_tokenizer, self.max_seq_length)
@@ -459,6 +467,7 @@ class DataGenerator:
         src_masks = torch.LongTensor(src_masks)
         data = TensorDataset(src_ids, src_masks)
         sampler = SequentialSampler(data)
+
         dataloader = DataLoader(data, sampler=sampler, batch_size=self.eval_batch_size)
         return dataloader
 

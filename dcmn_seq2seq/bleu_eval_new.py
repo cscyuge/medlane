@@ -187,15 +187,15 @@ def get_score():
         index = np.where((len_sen >= len_current[0]) & (len_sen < len_current[1]))
         ref = test_targets[index].tolist()
         hyp = test_subjects[index].tolist()
-        open('./tmp/hyp.txt', 'w').writelines([x for x in hyp])
+        open('./tmp/hyp.txt', 'w', encoding='utf-8').writelines([x for x in hyp])
         ref0 = [x[0] for x in ref]
         ref1 = [x[1] for x in ref]
         ref2 = [x[2] for x in ref]
         ref3 = [x[3] for x in ref]
-        open('./tmp/ref0.txt', 'w').writelines([x + '\n' for x in ref0])
-        open('./tmp/ref1.txt', 'w').writelines([x + '\n' for x in ref1])
-        open('./tmp/ref2.txt', 'w').writelines([x + '\n' for x in ref2])
-        open('./tmp/ref3.txt', 'w').writelines([x + '\n' for x in ref3])
+        open('./tmp/ref0.txt', 'w', encoding='utf-8').writelines([x + '\n' for x in ref0])
+        open('./tmp/ref1.txt', 'w', encoding='utf-8').writelines([x + '\n' for x in ref1])
+        open('./tmp/ref2.txt', 'w', encoding='utf-8').writelines([x + '\n' for x in ref2])
+        open('./tmp/ref3.txt', 'w', encoding='utf-8').writelines([x + '\n' for x in ref3])
 
         dics = test_dics[index].tolist()
 
