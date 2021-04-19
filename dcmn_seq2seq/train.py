@@ -120,7 +120,8 @@ def valid(dcmn, dataloader, device, loss_fun,
 
     seq_dataloader = dg.get_eval_dataloader(dcmn_outs)
     results = []
-    for batch_src in enumerate(tqdm(seq_dataloader, desc="Evaluating")):
+    for step, batch_src in enumerate(tqdm(seq_dataloader, desc="Evaluating")):
+        batch_src = tuple(t.to(device) for t in batch_src)
         decoder_outputs, decoder_hidden, ret_dict = seq2seq(batch_src, None, 0.0)
         symbols = ret_dict['sequence']
         symbols = torch.cat(symbols, 1).data.cpu().numpy()
