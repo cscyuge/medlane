@@ -366,18 +366,17 @@ class Seq2seq(nn.Module):
         self.encoder.rnn.flatten_parameters()
         self.decoder.rnn.flatten_parameters()
 
-    def forward(self, batch_src, indices, sum_embs, batch_tar=None,
+    def forward(self, batch_src, batch_tar=None,
                 teacher_forcing_ratio=0):
 
         encoder_outputs, encoder_hidden = self.encoder(batch_src)
 
-        combined_embeddings = torch.matmul(indices.unsqueeze(-1), sum_embs.unsqueeze(1)) + encoder_outputs
 
         target_variable = batch_tar
         result = self.decoder(inputs=target_variable,
                               encoder_hidden=encoder_hidden,
-                              encoder_outputs=combined_embeddings,
-                              # encoder_outputs = encoder_outputs,
+                              # encoder_outputs=combined_embeddings,
+                              encoder_outputs = encoder_outputs,
                               function=self.decode_function,
                               teacher_forcing_ratio=teacher_forcing_ratio)
         return result

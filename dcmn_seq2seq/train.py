@@ -54,134 +54,83 @@ def set_optimizer_params_grad(named_params_optimizer, named_params_model, test_n
     return is_nan
 
 
-def train(model, dataloader, device, optimizer, dcmn_scheduler, global_step,
-          gradient_accumulation_steps, loss_fun, dcmn_config,
-          seq2seq, seq_config, seq_optimizer, seq_scheduler, seq_loss_fun):
+def train(model, dataloader, device, optimizer, dcmn_scheduler, loss_fun,
+          seq2seq, seq_optimizer, seq_scheduler, seq_loss_fun, dg):
     model.train()
     seq2seq.train()
-    train_acc = 0
     tr_dcmn_loss = 0
     tr_seq_loss = 0
-    nb_tr_examples, nb_tr_steps = 0, 0
+    nb_dcmn_steps = 0
+    nb_seq_steps = 0
     for step, batch in enumerate(tqdm(dataloader, desc="Iteration")):
         batch = tuple(t.to(device) for t in batch)
-
-        input_ids, input_mask, segment_ids, label_ids, doc_len, ques_len, option_len, key_embs, \
-        src_ids, src_masks, indices, tar_ids, tar_masks = batch
-
+        input_ids, input_mask, segment_ids, label_ids, doc_len, ques_len, option_len = batch
         outputs = model(input_ids, segment_ids, input_mask, doc_len, ques_len, option_len)
         loss = loss_fun(outputs, label_ids)
-
-        outs = np.argmax(outputs.detach().cpu().numpy(), axis=1)
-        filter_mat = torch.zeros(outputs.shape[0], dcmn_config.num_choices, dcmn_config.num_choices)
-        for i, out in enumerate(outs):
-            filter_mat[i][out][out] = 1
-        filter_mat = filter_mat.to(device)
-        outputs = outputs.unsqueeze(-1)
-
-        # print(filter_mat.shape, outputs.shape)
-        outputs = torch.matmul(filter_mat, outputs)
-
-        batch_scores = softmax(outputs, dim=1)
-        batch_scores = batch_scores.expand(outputs.shape[0], dcmn_config.num_choices,
-                                            seq_config.hidden_size)
-        sum_embs = torch.sum(key_embs * batch_scores, dim=1)
-
-        decoder_outputs, decoder_hidden, ret_dict = seq2seq([src_ids,src_masks], indices, sum_embs, tar_ids, 0.5)
-        target = tar_ids[:, 1:].reshape(-1)
-        mask = tar_masks[:, 1:].reshape(-1).float()
-        logit = torch.stack(decoder_outputs, 1).view(target.shape[0], -1)
-
-        seq_loss = (seq_loss_fun(input=logit, target=target) * mask).sum() / mask.sum()
         tr_dcmn_loss += loss.item()
-        tr_seq_loss += seq_loss.item()
-
-        if step % 500 == 0:
-            print('train dcmn loss:{:.6f}, train seq2seq loss:{:.6f}'.format(loss.item(), seq_loss.item()))
-            # print('train dcmn loss:{:.6f}, train seq2seq loss:{:.6f}'.format(loss.item(), loss.item()))
-
-        nb_tr_examples += input_ids.size(0)
-        nb_tr_steps += 1
-
-        total_loss = seq_loss + loss
-        # total_loss = loss
-        total_loss.backward()
-
-        seq_optimizer.step()
-        seq_scheduler.step()
-        seq_optimizer.zero_grad()
-
+        loss.backward()
         optimizer.step()
         dcmn_scheduler.step()
         optimizer.zero_grad()
-        global_step += 1
+        nb_dcmn_steps+=1
+
+        outs = np.argmax(outputs.detach().cpu().numpy(), axis=1)
+        dg.push(outs)
+        batch = dg.get()
+        if batch is not None:
+            batch = tuple(t.to(device) for t in batch)
+            src_ids, src_masks, tar_ids, tar_masks = batch
+            decoder_outputs, decoder_hidden, ret_dict = seq2seq([src_ids, src_masks], tar_ids, 0.5)
+            target = tar_ids[:, 1:].reshape(-1)
+            mask = tar_masks[:, 1:].reshape(-1).float()
+            logit = torch.stack(decoder_outputs, 1).view(target.shape[0], -1)
+            seq_loss = (seq_loss_fun(input=logit, target=target) * mask).sum() / mask.sum()
+            tr_seq_loss += seq_loss.item()
+            seq_loss.backward()
+            seq_optimizer.step()
+            seq_scheduler.step()
+            seq_optimizer.zero_grad()
+            nb_seq_steps+=1
+
+    return tr_dcmn_loss/nb_dcmn_steps, tr_seq_loss/nb_seq_steps, dcmn_scheduler.get_last_lr(), seq_scheduler.get_last_lr()
 
 
-    train_acc = train_acc / nb_tr_examples
-
-    return tr_dcmn_loss, tr_seq_loss, nb_tr_steps, global_step, dcmn_scheduler.get_last_lr(), seq_scheduler.get_last_lr(), train_acc
-
-
-def valid(dcmn, dataloader, device, loss_fun, dcmn_config,
-          seq2seq, seq_config, dg):
+def valid(dcmn, dataloader, device, loss_fun,
+          seq2seq, dg):
     dcmn.eval()
     seq2seq.eval()
     eval_loss, eval_accuracy = 0, 0
     nb_eval_steps, nb_eval_examples = 0, 0
-    outs = []
-    sentences = dg.test_dcmn_srcs
-    p = 0
+    dcmn_outs = []
     for step, batch in enumerate(tqdm(dataloader, desc="Evaluating")):
         batch = tuple(t.to(device) for t in batch)
-        input_ids, input_mask, segment_ids, label_ids, all_doc_len, all_ques_len, all_option_len, \
-        key_embs, src_ids, src_masks, indices = batch
+        input_ids, input_mask, segment_ids, label_ids, all_doc_len, all_ques_len, all_option_len = batch
 
         with torch.no_grad():
             logits = dcmn(input_ids, segment_ids, input_mask, all_doc_len, all_ques_len, all_option_len)
-
             tmp_eval_loss = loss_fun(logits, label_ids)
             label_ids = label_ids.to('cpu').numpy()
             tmp_eval_accuracy = accuracy(logits.detach().cpu().numpy(), label_ids)
-
-            # logits = logits.detach().cpu().numpy()
-            # outputs = np.argmax(logits, axis=1)
-            # for output in outputs:
-            #     # print(output)
-            #     word = sentences[p][output+2]
-            #     # print(word)
-            #     p += 1
-            #     outs.append(['[CLS]','[SEP]',word,'[SEP]','.'])
-            dcmn_outs = np.argmax(logits.detach().cpu().numpy(), axis=1)
-            filter_mat = torch.zeros(logits.shape[0], dcmn_config.num_choices, dcmn_config.num_choices)
-            for i, out in enumerate(dcmn_outs):
-                filter_mat[i][out][out] = 1
-            filter_mat = filter_mat.to(device)
-            logits = logits.unsqueeze(-1)
-
-            # print(filter_mat.shape, outputs.shape)
-            logits = torch.matmul(filter_mat, logits)
-
-            batch_scores = softmax(logits, dim=1)
-            batch_scores = batch_scores.expand(logits.shape[0], dcmn_config.num_choices,
-                                                             seq_config.hidden_size)
-            sum_embs = torch.sum(key_embs * batch_scores, dim=1)
-            batch_src = [src_ids, src_masks]
-            decoder_outputs, decoder_hidden, ret_dict = seq2seq(batch_src, indices, sum_embs, None, 0.0)
-            symbols = ret_dict['sequence']
-            symbols = torch.cat(symbols, 1).data.cpu().numpy()
-            for u in symbols:
-                outs.append(u)
-
+            outs = np.argmax(logits.detach().cpu().numpy(), axis=1)
+            dcmn_outs.extend(outs)
             eval_loss += tmp_eval_loss.mean().item()
             eval_accuracy += tmp_eval_accuracy
-
             nb_eval_examples += input_ids.size(0)
             nb_eval_steps += 1
 
+    seq_dataloader = dg.get_eval_dataloader(dcmn_outs)
+    results = []
+    for batch_src in enumerate(tqdm(seq_dataloader, desc="Evaluating")):
+        decoder_outputs, decoder_hidden, ret_dict = seq2seq(batch_src, None, 0.0)
+        symbols = ret_dict['sequence']
+        symbols = torch.cat(symbols, 1).data.cpu().numpy()
+        results.extend(dg.decode_sentence(symbols))
+
+    bleu, hit, com, ascore = dg.valid(results)
     eval_loss = eval_loss / nb_eval_steps
     eval_accuracy = eval_accuracy / nb_eval_examples
 
-    return eval_loss, eval_accuracy, outs
+    return eval_loss, eval_accuracy, results, bleu, hit, com, ascore
 
 
 def train_valid(dcmn, dcmn_config, train_dataloader, eval_dataloader,
@@ -201,20 +150,16 @@ def train_valid(dcmn, dcmn_config, train_dataloader, eval_dataloader,
 
     for epoch in range(int(num_train_epochs)):
         logger.info("**** Epoch {} *****".format(epoch))
+        dg.reset()
+        tr_dcmn_loss, tr_seq_loss, lr_pre, seq_lr_pre = train(dcmn, train_dataloader, device, dcmn_optimizer,
+                                                                dcmn_scheduler, dcmn_loss_fun,
+                                                                seq2seq, seq_optimizer, seq_scheduler,
+                                                                seq_loss_fun,dg)
 
-        tr_dcmn_loss, tr_seq_loss, nb_tr_steps, global_step, lr_pre, seq_lr_pre, train_acc = train(dcmn, train_dataloader, device, dcmn_optimizer,
-                                                                           dcmn_scheduler, global_step,
-                                                                           gradient_accumulation_steps, dcmn_loss_fun, dcmn_config,
-                                                                           seq2seq, seq_config, seq_optimizer, seq_scheduler,
-                                                                           seq_loss_fun)
+        eval_loss, eval_accuracy, val_results, bleu, hit, com, ascore = valid(dcmn, eval_dataloader, device,
+                                                                              dcmn_loss_fun, seq2seq, dg)
 
-        eval_loss, eval_accuracy, outs = valid(dcmn, eval_dataloader, device, dcmn_loss_fun, dcmn_config,
-                                               seq2seq, seq_config, dg)
 
-        import pickle
-        with open('./outs/outs{}.pkl'.format(epoch), 'wb') as f:
-            pickle.dump(outs, f)
-        val_results, bleu, hit, com, ascore = dg.valid(outs)
 
         if eval_accuracy > best_accuracy:
             logger.info("**** Saving best dcmn model.... *****")
@@ -241,12 +186,11 @@ def train_valid(dcmn, dcmn_config, train_dataloader, eval_dataloader,
         result = {'eval_loss': eval_loss,
                   'best_accuracy': best_accuracy,
                   'eval_accuracy': eval_accuracy,
-                  'train_accuracy': train_acc,
                   'global_step': global_step,
                   'dcmn_lr_now': lr_pre,
                   'seq_lr_now':seq_lr_pre,
-                  'tr_dcmn_loss': tr_dcmn_loss / nb_tr_steps,
-                  'tr_seq_loss' : tr_seq_loss / nb_tr_steps,
+                  'tr_dcmn_loss': tr_dcmn_loss,
+                  'tr_seq_loss' : tr_seq_loss,
                   'BLUE': bleu,
                   'HIT': hit,
                   'COMMON': com,

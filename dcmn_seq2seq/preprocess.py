@@ -3,6 +3,7 @@ import logging
 import os
 import torch
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
+from tqdm import tqdm
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt='%m/%d/%Y %H:%M:%S',
@@ -18,27 +19,13 @@ class SwagExample(object):
                  context_sentence,
                  start_ending,
                  endings,
-                 key_embs,
-                 src_ids,
-                 src_masks,
-                 indices,
-                 tar_ids=None,
-                 tar_masks=None,
-                 tars=None,
-                 cudic=None,
-                 label=None):
+                 label=None
+                 ):
         self.swag_id = swag_id
         self.context_sentence = context_sentence
         self.start_ending = start_ending
         self.endings = endings
-        self.key_embs = key_embs
-        self.src_ids = src_ids
-        self.src_masks = src_masks
-        self.indices = indices
-        self.tar_ids = tar_ids
-        self.tar_masks = tar_masks
-        self.tars = tars
-        self.cudic = cudic
+
         self.label = label
 
     def __str__(self):
@@ -62,15 +49,7 @@ class InputFeatures(object):
     def __init__(self,
                  example_id,
                  choices_features,
-                 label,
-                 key_embs,
-                 src_ids,
-                 src_masks,
-                 indices,
-                 tar_ids=None,
-                 tar_masks=None,
-                 tars=None,
-                 cudic=None
+                 label
                  ):
         self.example_id = example_id
         self.choices_features = [
@@ -84,15 +63,6 @@ class InputFeatures(object):
             }
             for _, input_ids, input_mask, segment_ids, doc_len, ques_len, option_len in choices_features
         ]
-        self.label = label
-        self.key_embs = key_embs
-        self.src_ids = src_ids
-        self.src_masks = src_masks
-        self.indices = indices
-        self.tar_ids = tar_ids
-        self.tar_masks = tar_masks
-        self.tars = tars
-        self.cudic = cudic
         self.label = label
 
 
@@ -116,33 +86,26 @@ def _truncate_seq_pair(tokens_a, tokens_b, max_length):
 
 def read_swag_examples(input_file, max_pad_length, dg):
     answer_file = input_file.replace('sentences', 'labels')
-    article, question, cts, key_embs, y, q_id, \
-        src_ids, src_masks, indices, tar_ids, tar_masks = parse_mc(input_file, answer_file, max_pad_length, dg)
+    article, question, cts, y, q_id = parse_mc(input_file, answer_file, max_pad_length, dg)
 
     examples = [
         SwagExample(
-            swag_id=s6,
+            swag_id=s5,
             context_sentence=s1,
             start_ending=s2,  # in the swag dataset, the
             # common beginning of each
             # choice is stored in "sent2".
             endings=s3,
-            key_embs=s4,
-            label=s5,
-            src_ids=s7,
-            src_masks=s8,
-            indices=s9,
-            tar_ids=s10,
-            tar_masks=s11,
-        ) for i, (s1, s2, *s3, s4, s5, s6, s7, s8, s9, s10, s11) in
-                enumerate(zip(article, question, *cts, key_embs, y, q_id, src_ids, src_masks, indices, tar_ids, tar_masks))
+            label=s4,
+        ) for i, (s1, s2, *s3, s4, s5) in
+        enumerate(zip(article, question, *cts, y, q_id))
     ]
 
     return examples
 
 
 def convert_examples_to_features(examples, tokenizer, max_seq_length,
-                                 is_training, dg):
+                                 is_training):
     """Loads a data file into a list of `InputBatch`s."""
 
     # Swag is a multiple choice task. To perform this task using Bert,
@@ -163,7 +126,7 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
     # outputs.
     features = []
     ool = 0
-    for example_index, example in enumerate(examples):
+    for example_index, example in enumerate(tqdm(examples)):
         context_tokens = tokenizer.tokenize(example.context_sentence)
         start_ending_tokens = tokenizer.tokenize(example.start_ending)
 
@@ -188,7 +151,7 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
             doc_len = len(context_tokens_choice)
             if len(ending_tokens) + len(context_tokens_choice) >= max_seq_length - 3:
                 ques_len = len(ending_tokens) - option_len
-            if ques_len<=0:
+            if ques_len <= 0:
                 print(len(ending_tokens), option_len)
                 print(example)
 
@@ -217,7 +180,8 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
         if example_index < 0:
             logger.info("*** Example ***")
             logger.info(f"swag_id: {example.swag_id}")
-            for choice_idx, (tokens, input_ids, input_mask, segment_ids, doc_len, ques_len, option_len) in enumerate(choices_features):
+            for choice_idx, (tokens, input_ids, input_mask, segment_ids, doc_len, ques_len, option_len) in enumerate(
+                    choices_features):
                 logger.info(f"choice: {choice_idx}")
                 logger.info(f"tokens: {' '.join(tokens)}")
                 logger.info(f"input_ids: {' '.join(map(str, input_ids))}")
@@ -231,51 +195,28 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
                 example_id=example.swag_id,
                 choices_features=choices_features,
                 label=label,
-                key_embs=example.key_embs,
-                src_ids=example.src_ids,
-                src_masks=example.src_masks,
-                indices=example.indices,
-                tar_ids=example.tar_ids,
-                tar_masks=example.tar_masks
             )
         )
 
     return features
 
 
-def get_dataloader(data_dir, data_file, num_choices, tokenizer, max_seq_length, batch_size, dg, is_training):
+def get_dataloader(data_dir, data_file, num_choices, tokenizer, max_seq_length, batch_size, dg):
     examples = read_swag_examples(os.path.join(data_dir, data_file), max_pad_length=num_choices + 2, dg=dg)
 
     features = convert_examples_to_features(
-        examples, tokenizer, max_seq_length, True, dg)
+        examples, tokenizer, max_seq_length, True)
     all_input_ids = torch.LongTensor(select_field(features, 'input_ids'))
     all_input_mask = torch.LongTensor(select_field(features, 'input_mask'))
     all_segment_ids = torch.LongTensor(select_field(features, 'segment_ids'))
     all_doc_len = torch.LongTensor(select_field(features, 'doc_len'))
     all_ques_len = torch.LongTensor(select_field(features, 'ques_len'))
     all_option_len = torch.LongTensor(select_field(features, 'option_len'))
-    all_key_embs = torch.Tensor([f.key_embs for f in features])
-    # all_key_embs = all_key_embs.squeeze()
     all_label = torch.LongTensor([f.label for f in features])
-    all_indices = torch.Tensor([f.indices for f in features])
-    all_src_ids = torch.LongTensor([f.src_ids for f in features])
-    all_src_masks = torch.LongTensor([f.src_masks for f in features])
 
-    if is_training:
-        all_tar_ids = torch.LongTensor([f.tar_ids for f in features])
-        all_tar_masks = torch.LongTensor([f.tar_masks for f in features])
-        data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label, all_doc_len, all_ques_len,
-                             all_option_len, all_key_embs, all_src_ids, all_src_masks, all_indices, all_tar_ids,
-                             all_tar_masks)
+    data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label, all_doc_len, all_ques_len,
+                         all_option_len)
 
-        sampler = SequentialSampler(data)
-        dataloader = DataLoader(data, sampler=sampler, batch_size=batch_size)
-        return dataloader, len(examples)
-    else:
-        data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label, all_doc_len, all_ques_len,
-                                   all_option_len, all_key_embs, all_src_ids, all_src_masks, all_indices)
-
-        sampler = SequentialSampler(data)
-        dataloader = DataLoader(data, sampler=sampler, batch_size=batch_size)
-        return dataloader, len(examples)
-
+    sampler = SequentialSampler(data)
+    dataloader = DataLoader(data, sampler=sampler, batch_size=batch_size)
+    return dataloader, len(examples)

@@ -116,11 +116,9 @@ def parse_mc(input_file, answer_file, max_pad_length, dg):
     if 'dev' in input_file:
         _sentences = dg.test_dcmn_srcs
         _labels = dg.test_dcmn_labels
-        key_embs = dg.test_embs
     else:
         _sentences = dg.train_dcmn_srcs
         _labels = dg.train_dcmn_labels
-        key_embs = dg.train_embs
 
     sentences = _sentences
     labels = _labels
@@ -132,21 +130,8 @@ def parse_mc(input_file, answer_file, max_pad_length, dg):
     for i in range(max_pad_length-2):
         cts.append([u[i+2] for u in sentences])
     y = labels
-    if 'dev' in input_file:
-        src_ids = dg.test_seq_srcs_ids
-        src_masks = dg.test_seq_srcs_masks
-        tar_ids = [None for _ in range(len(q_id))]
-        tar_masks = [None for _ in range(len(q_id))]
-        indices = dg.test_indices
-    else:
-        src_ids = dg.train_seq_srcs_ids
-        src_masks = dg.train_seq_srcs_masks
-        tar_ids = dg.train_seq_tars_ids
-        tar_masks = dg.train_seq_tars_masks
-        indices = dg.train_indices
 
-    return article, question, cts, key_embs, y, q_id, \
-            src_ids, src_masks, indices, tar_ids, tar_masks
+    return article, question, cts, y, q_id
 
 
 
