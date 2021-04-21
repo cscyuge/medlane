@@ -359,7 +359,7 @@ class DataGenerator:
             self.train_seq_srcs[i] = '[CLS] ' + self.train_seq_srcs[i] + ' [SEP]'
         for i in range(len(self.test_seq_srcs)):
             self.test_seq_srcs[i] = '[CLS]' + self.test_seq_srcs[i] + ' [SEP]'
-        for u in self.train_tar_2_txt:
+        for u in self.train_tar_1_txt:
             self.train_seq_tars.append('[CLS] ' + u + ' [SEP]')
 
         self._train_seq_srcs = self.train_seq_srcs[:]

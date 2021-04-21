@@ -26,8 +26,7 @@ class DCMN_Config():
         self.eval_batch_size = 6
         self.seq_batch_size = 6
         self.num_choices = 8
-        # self.learning_rate = 1e-5/5.0
-        self.learning_rate = 1.0370370370370371e-06
+        self.learning_rate = 5e-5
         self.num_train_epochs = 30.0
         self.model_name = 'output_test.bin'
         self.n_gpu = 1
@@ -38,8 +37,7 @@ class DCMN_Config():
 
         # Proportion of training to perform linear learning rate warmup for.
         # E.g., 0.1 = 10%% of training.
-        # self.warmup_proportion = 0.1
-        self.warmup_proportion = 0.0
+        self.warmup_proportion = 0.03
 
         # Whether not to use CUDA when available
         self.no_cuda = False

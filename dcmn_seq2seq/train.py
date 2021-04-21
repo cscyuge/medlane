@@ -55,7 +55,7 @@ def set_optimizer_params_grad(named_params_optimizer, named_params_model, test_n
 
 
 def train(model, dataloader, device, optimizer, dcmn_scheduler, loss_fun,
-          seq2seq, seq_optimizer, seq_scheduler, seq_loss_fun, dg):
+          seq2seq, seq_optimizer, seq_scheduler, seq_loss_fun, dg, epoch):
     model.train()
     seq2seq.train()
     tr_dcmn_loss = 0
@@ -65,15 +65,22 @@ def train(model, dataloader, device, optimizer, dcmn_scheduler, loss_fun,
     for step, batch in enumerate(tqdm(dataloader, desc="Iteration")):
         batch = tuple(t.to(device) for t in batch)
         input_ids, input_mask, segment_ids, label_ids, doc_len, ques_len, option_len = batch
-        outputs = model(input_ids, segment_ids, input_mask, doc_len, ques_len, option_len)
-        loss = loss_fun(outputs, label_ids)
-        tr_dcmn_loss += loss.item()
-        loss.backward()
-        optimizer.step()
-        dcmn_scheduler.step()
-        optimizer.zero_grad()
-        nb_dcmn_steps+=1
 
+        if epoch>=10:
+            with torch.no_grad():
+                outputs = model(input_ids, segment_ids, input_mask, doc_len, ques_len, option_len)
+                loss = loss_fun(outputs, label_ids)
+                tr_dcmn_loss += loss.item()
+        else:
+            outputs = model(input_ids, segment_ids, input_mask, doc_len, ques_len, option_len)
+            loss = loss_fun(outputs, label_ids)
+            tr_dcmn_loss += loss.item()
+            loss.backward()
+            optimizer.step()
+            dcmn_scheduler.step()
+            optimizer.zero_grad()
+
+        nb_dcmn_steps+=1
         outs = np.argmax(outputs.detach().cpu().numpy(), axis=1)
         dg.push(outs)
         batch = dg.get()
@@ -155,7 +162,7 @@ def train_valid(dcmn, dcmn_config, train_dataloader, eval_dataloader,
         tr_dcmn_loss, tr_seq_loss, lr_pre, seq_lr_pre = train(dcmn, train_dataloader, device, dcmn_optimizer,
                                                                 dcmn_scheduler, dcmn_loss_fun,
                                                                 seq2seq, seq_optimizer, seq_scheduler,
-                                                                seq_loss_fun,dg)
+                                                                seq_loss_fun,dg, epoch)
 
         eval_loss, eval_accuracy, val_results, bleu, hit, com, ascore = valid(dcmn, eval_dataloader, device,
                                                                               dcmn_loss_fun, seq2seq, dg)
