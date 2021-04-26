@@ -19,7 +19,7 @@ import argparse
 from tqdm import tqdm
 from Bert.utils import build_iterator, get_time_dif, build_iterator_eval
 from Bert.dataset import build_dataset, build_dataset_eval
-from Bert.bleu_eval import count_common, count_hit, count_score
+from Bert.bleu_eval import count_common, count_hit, count_score, get_score
 import copy
 PAD, CLS = '[PAD]', '[CLS]'
 SEP = '[SEP]'
@@ -463,6 +463,19 @@ def decode_sentence(symbols, config):
         sentences.append(temp)
     return sentences
 
+def remove_mask(srcs, results):
+    results_new = []
+    for src, tar in zip(srcs, results):
+        src = src.split('[MASK]')
+        tar = tar.split('[MASK]')
+        sts = ''
+        for i,u in enumerate(src):
+            if i%2==1 and i<len(tar):
+                sts += tar[i].strip()+' '
+            else:
+                sts += u.strip()+' '
+        results_new.append(sts)
+    return results_new
 
 def eval_set(model, dataloader, config):
     model.eval()
@@ -479,11 +492,6 @@ def eval_set(model, dataloader, config):
         references += train_tar
         dics += train_dic
 
-    tmp = copy.deepcopy(references)
-    bleu = count_score(results, tmp)
-    del tmp
-    hit = count_hit(results, dics)
-    com = count_common(results)
     sentences = []
     for words in results:
         tmp = ''
@@ -492,6 +500,21 @@ def eval_set(model, dataloader, config):
             tmp += ' '
         sentences.append(tmp)
     model.train()
+    with open('./data/test_src_ok.pkl', 'rb') as f:
+        test_src_ok = pickle.load(f)
+
+    for i in range(len(test_src_ok)):
+        sts = test_src_ok[i]
+        sts = sts.split('[CLS]')[1]
+        sts = sts.split('[SEP]')[0]
+        test_src_ok[i] = sts.strip()
+
+    sentences = remove_mask(test_src_ok, sentences)
+
+    with open('./result/tmp.out.txt', 'w', encoding='utf-8') as f:
+        f.writelines([x.lower() + '\n' for x in sentences])
+    bleu, hit, com, ascore = get_score()
+
     return sentences, bleu, hit, com
 
 

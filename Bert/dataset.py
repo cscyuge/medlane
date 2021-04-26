@@ -9,6 +9,7 @@ def build_dataset(config):
     def load_dataset(data, pad_size=50):
         contents = []
         data = data.lower()
+        data = data.replace('[mask]', '[MASK]')
         data = data.split('\n\n')
         for lines in tqdm(data):
             lines = lines.split('\n')
@@ -48,7 +49,7 @@ def build_dataset(config):
 
             contents.append((token_ids_src, int(0), seq_len_src, mask_src, token_ids_tar, int(0), seq_len_tar, mask_tar))
         return contents
-    train_data = open('./data/train(12809)-v2.txt', 'r', encoding='utf-8').read()
+    train_data = open('./data/train(12809)-v3.txt', 'r', encoding='utf-8').read()
     train_data = load_dataset(train_data, pad_size=config.pad_size)
     return train_data
 
@@ -57,6 +58,7 @@ def build_dataset_eval(config):
     def load_dataset(data, pad_size=50):
         contents = []
         data = data.lower()
+        data = data.replace('[mask]', '[MASK]')
         data = data.split('\n\n')
         for lines in tqdm(data):
             lines = lines.split('\n')
@@ -102,8 +104,10 @@ def build_dataset_eval(config):
 
             contents.append((token_ids_src, int(0), seq_len_src, mask_src, tars, cudic))
         return contents
-    test_data = open('./data/test(2030)-v2.txt', 'r', encoding='utf-8').read()
+    test_data = open('./data/test(2030)-v3.txt', 'r', encoding='utf-8').read()
     test_data = load_dataset(test_data, pad_size=config.pad_size)
-    val_data = test_data[0:len(test_data)//2]
-    test_data = test_data[len(test_data)//2:]
+    # val_data = test_data[0:len(test_data)//2]
+    # test_data = test_data[len(test_data)//2:]
+    val_data = test_data[:]
+    test_data = test_data[:]
     return val_data, test_data
