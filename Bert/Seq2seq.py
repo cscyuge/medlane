@@ -477,7 +477,7 @@ def remove_mask(srcs, results):
         results_new.append(sts)
     return results_new
 
-def eval_set(model, dataloader, config):
+def eval_set(model, dataloader, config, epoch):
     model.eval()
     results = []
     references = []
@@ -492,13 +492,7 @@ def eval_set(model, dataloader, config):
         references += train_tar
         dics += train_dic
 
-    sentences = []
-    for words in results:
-        tmp = ''
-        for word in words:
-            tmp += word
-            tmp += ' '
-        sentences.append(tmp)
+
     model.train()
     with open('./data/test_src_ok.pkl', 'rb') as f:
         test_src_ok = pickle.load(f)
@@ -509,13 +503,16 @@ def eval_set(model, dataloader, config):
         sts = sts.split('[SEP]')[0]
         test_src_ok[i] = sts.strip()
 
-    sentences = remove_mask(test_src_ok, sentences)
+    with open('./outs/outs{}.pkl'.format(epoch), 'wb') as f:
+        pickle.dump(results, f)
+    print(results[0])
+    results = remove_mask(test_src_ok, results)
 
     with open('./result/tmp.out.txt', 'w', encoding='utf-8') as f:
-        f.writelines([x.lower() + '\n' for x in sentences])
+        f.writelines([x.lower() + '\n' for x in results])
     bleu, hit, com, ascore = get_score()
 
-    return sentences, bleu, hit, com
+    return results, bleu, hit, com
 
 
 def train(model, optimizer, Tensor, train_dataloader, val_dataloader, test_dataloader, loss_fun, config,scheduler):
@@ -542,7 +539,7 @@ def train(model, optimizer, Tensor, train_dataloader, val_dataloader, test_datal
                 print('train loss:%f' %loss.item())
         #validation steps
         if e >= 0:
-            val_results, bleu, hit, com = eval_set(model, val_dataloader, config)
+            val_results, bleu, hit, com = eval_set(model, val_dataloader, config, epoch=e)
             print(val_results[0:5])
             # print('BLEU:%f, HIT:%f, COMMON:%f' %(bleu, hit, com))
             if bleu > max_bleu:
@@ -576,7 +573,7 @@ def train(model, optimizer, Tensor, train_dataloader, val_dataloader, test_datal
     print('Train finished')
     print('Best Val BLEU:%f, HIT:%f, COMMON:%f' %(save_file_best['best_bleu'], save_file_best['best_hit'], save_file_best['best_common']))
     model.load_state_dict(save_file_best['para'])
-    test_results, bleu, hit, com = eval_set(model, test_dataloader, config)
+    test_results, bleu, hit, com = eval_set(model, test_dataloader, config, 30)
     print('Test BLEU:%f, HIT:%f, COMMON:%f' % (bleu, hit, com))
     with open('./result/best_save_bert.out.txt', 'w') as f:
         f.writelines([x + '\n' for x in test_results])
