@@ -370,7 +370,7 @@ class Seq2seq(nn.Module):
         self.decoder.rnn.flatten_parameters()
 
     def forward(self, batch_src, batch_tar=None,
-                teacher_forcing_ratio=0):
+                teacher_forcing_ratio=0, training = True):
         encoder_outputs, encoder_hidden = self.encoder(batch_src)
         # print(encoder_outputs,encoder_hidden)
         target_variable = batch_tar
